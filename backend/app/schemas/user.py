@@ -9,9 +9,21 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models.user import UserRole
+
+
+def _normalize_identifier(value: Optional[str]) -> Optional[str]:
+    """Lowercase and trim a username/email so lookups are case-insensitive.
+
+    Applied at the API boundary so a value is stored and matched in one
+    canonical form regardless of how the user typed it. ``None`` passes through
+    unchanged for optional fields.
+    """
+    if value is None:
+        return None
+    return value.strip().lower()
 
 
 # =============================================================================
@@ -65,6 +77,9 @@ class UserCreate(BaseModel):
         description="Whether the account is active on creation",
     )
 
+    _normalize_username = field_validator("username")(_normalize_identifier)
+    _normalize_email = field_validator("email", mode="before")(_normalize_identifier)
+
 
 class UserUpdate(BaseModel):
     """Request body for updating a user (partial update)."""
@@ -87,6 +102,9 @@ class UserUpdate(BaseModel):
         default=None,
         description="Enable or disable the account",
     )
+
+    _normalize_username = field_validator("username")(_normalize_identifier)
+    _normalize_email = field_validator("email", mode="before")(_normalize_identifier)
 
 
 class AdminPasswordReset(BaseModel):

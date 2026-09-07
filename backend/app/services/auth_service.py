@@ -318,6 +318,10 @@ class AuthService:
         Raises:
             AuthenticationError: If credentials are invalid or account is locked.
         """
+        # Normalize so login is case-insensitive regardless of caller. The API
+        # schema also normalizes; this guards direct/service-level callers.
+        username = username.strip().lower()
+
         # Look up user by username
         result = await self.db.execute(
             select(User).filter_by(username=username, deleted_at=None)
@@ -563,6 +567,8 @@ class AuthService:
         the endpoint cannot be used for email enumeration.
         """
         generic_message = "If the email exists, a reset link will be sent"
+        # Normalize so reset matches regardless of the case the email was typed.
+        email = email.strip().lower()
         result = await self.db.execute(
             select(User).filter_by(email=email, deleted_at=None)
         )

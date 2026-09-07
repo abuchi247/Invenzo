@@ -35,6 +35,11 @@ async def create_user(username: str, password: str, email: str, role: str, must_
         print(f"Error: Invalid role '{role}'. Must be one of: {', '.join(VALID_ROLES)}")
         sys.exit(1)
 
+    # Normalize username/email so accounts are case-insensitive and match the
+    # API's behaviour (login/reset lowercase before lookup).
+    username = username.strip().lower()
+    email = email.strip().lower()
+
     async with async_session_factory() as session:
         # Check if username already exists
         result = await session.execute(

@@ -6,7 +6,12 @@ and password reset operations.
 Satisfies Requirements: 2.1, 2.2, 2.3, 2.4
 """
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+
+def _normalize_identifier(value: str) -> str:
+    """Lowercase and trim a username/email so auth is case-insensitive."""
+    return value.strip().lower()
 
 
 # =============================================================================
@@ -30,6 +35,8 @@ class LoginRequest(BaseModel):
         description="User's password",
         examples=["SecurePass1"],
     )
+
+    _normalize_username = field_validator("username")(_normalize_identifier)
 
 
 class RefreshTokenRequest(BaseModel):
@@ -68,6 +75,8 @@ class PasswordResetRequest(BaseModel):
         description="Email address associated with the user account",
         examples=["admin@example.com"],
     )
+
+    _normalize_email = field_validator("email", mode="before")(_normalize_identifier)
 
 
 class PasswordResetConfirm(BaseModel):
