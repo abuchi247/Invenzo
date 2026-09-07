@@ -113,6 +113,7 @@ const GUIDE_SECTIONS: Section[] = [
           'Set username, email, role, and a temporary password',
           'All new users must change their password on first login',
           'Password requirements: minimum 8 characters, at least one uppercase letter, one lowercase letter, and one digit',
+          'Usernames and emails are not case-sensitive — "John", "JOHN", and "john" are treated as the same account. Passwords, however, are case-sensitive.',
         ],
         tip: 'Roles control exactly what each user can see and do. See the Role Permissions section at the bottom of this guide for a full breakdown.',
         link: '/settings',
@@ -460,6 +461,7 @@ const GUIDE_SECTIONS: Section[] = [
         details: [
           'Click your username in the sidebar (bottom-left) or in the top header',
           'Your Profile page shows: username, email, role, account status, and when you joined',
+          'When signing in, your username and email are not case-sensitive — capitalization does not matter. Your password is case-sensitive.',
           'To change your password: enter your current password, then your new password twice',
           'Password requirements: minimum 8 characters, uppercase, lowercase, and digit',
           'You can change your own password regardless of your role',

@@ -30,7 +30,7 @@ Invenzo digitizes and streamlines operations for product-based businesses, repla
 - **Reporting & Dashboard** — Sales, inventory, customer, supplier, and financial reports with CSV/PDF export. Dashboard with Top 5 Products and Top 5 Customers widgets filterable by period (month, 3M, 6M, 1Y, all time).
 - **Notifications** — Low stock alerts, credit limit warnings, overdue customer reminders, and pending approval notifications
 - **Audit Trail** — Append-only, immutable record of all critical system events
-- **Security** — Role-based access control (Admin, Manager, Salesperson, Storekeeper) with JWT authentication, rate limiting, sliding-window account lockout (locks after 5 failed logins within 15 minutes for 30 minutes), admin-initiated password reset for users who forget theirs, and forced password change on first login
+- **Security** — Role-based access control (Admin, Manager, Salesperson, Storekeeper) with JWT authentication, rate limiting, sliding-window account lockout (locks after 5 failed logins within 15 minutes for 30 minutes), admin-initiated password reset for users who forget theirs, forced password change on first login, and case-insensitive usernames and emails (stored and matched in lowercase, so `John` and `john` are the same account)
 
 ## Technology Stack
 
@@ -309,6 +309,8 @@ docker exec invenzo-backend python scripts/create_user.py \
 ```
 
 **Password requirements:** minimum 8 characters, at least one uppercase letter, one lowercase letter, and one digit.
+
+**Usernames and emails are case-insensitive.** They are trimmed and stored in lowercase, and login and password reset match the same way — so `John`, `JOHN`, and `john` are the same account, and a user can sign in regardless of the casing they type. This applies to the API, the CLI script, and existing data (normalized by migration `0015`). Passwords remain case-sensitive.
 
 **Available roles:** `Admin`, `Manager`, `Salesperson`, `Storekeeper`
 
