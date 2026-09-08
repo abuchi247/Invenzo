@@ -167,6 +167,22 @@ export default function SaleDetailPage() {
   };
 
 
+  // Trigger a real file download from a PDF blob. Uses a temporary <a download>
+  // link rather than window.open — window.open after an await is treated as a
+  // non-user-initiated popup and is blocked by browsers in production, which
+  // made the receipt silently fail to open.
+  const downloadPdfBlob = (data: BlobPart, filename: string) => {
+    const blob = new Blob([data], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  };
+
   const handleDownloadPdf = async () => {
     if (!invoiceId) return;
     try {
@@ -175,11 +191,8 @@ export default function SaleDetailPage() {
       const response = await api.get(`/invoices/${invoiceId}/pdf`, {
         responseType: 'blob',
       });
-      const blob = new Blob([response.data], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
-      // Clean up the blob URL after a delay
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      const label = sale?.invoice_number || saleId;
+      downloadPdfBlob(response.data, `invoice_${label}.pdf`);
     } catch {
       setError('Failed to download invoice PDF');
     }
@@ -684,10 +697,8 @@ export default function SaleDetailPage() {
                     const response = await apiClient.post(`/invoices/credit-note/${saleId}`, {}, {
                       responseType: 'blob',
                     });
-                    const blob = new Blob([response.data], { type: 'application/pdf' });
-                    const url = URL.createObjectURL(blob);
-                    window.open(url, '_blank');
-                    setTimeout(() => URL.revokeObjectURL(url), 30000);
+                    const label = sale?.invoice_number || saleId;
+                    downloadPdfBlob(response.data, `credit_note_${label}.pdf`);
                   } catch {
                     setError('Failed to generate credit note');
                   }
