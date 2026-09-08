@@ -19,18 +19,18 @@ Invenzo digitizes and streamlines operations for product-based businesses, repla
 ## Key Capabilities
 
 - **Inventory Management** — Multi-location stock tracking with FIFO cost layers and barcode support
-- **Sales Management** — Cash and credit sales with pessimistic locking, automatic COGS calculation, partial payments at checkout, and PDF invoice generation
+- **Sales Management** — Cash and credit sales with pessimistic locking, automatic COGS calculation, partial payments at checkout, and PDF invoice generation. The sales list filters by status, date range, and product sold (part number or name), and shows who issued each sale.
 - **Customer Management** — Credit ledger with limit enforcement, aging analysis, payment tracking linked to specific sales, and partial payment support
 - **Supplier Management** — Purchase orders with full lifecycle (draft → approved → received), goods receipt notes, and supplier balance tracking
 - **Transfer Management** — Multi-location transfers with in-transit state and cost layer propagation
 - **Barcode System** — Code 128 barcode generation, scanning, and lookup
 - **Inventory Audits** — Snapshot-based cycle counts and full stock counts with variance tracking
-- **Invoice Generation** — PDF invoices in A4 and thermal (80mm) formats with QR codes and barcodes. Supports regeneration to reflect updated business settings. Credit notes generated automatically for returns.
-- **Business Settings** — Configurable company profile (name, logo, address, bank details) that populates invoices and reports
+- **Invoice Generation** — PDF invoices in A4 and thermal (80mm) formats with QR codes and barcodes, showing the issuing user and your configurable invoice footer. View inline or download. Supports regeneration to reflect updated business settings. Credit notes generated automatically for returns.
+- **Business Settings** — Configurable company profile (name, logo, address, bank details, invoice footer) that populates invoices and reports
 - **Reporting & Dashboard** — Sales, inventory, customer, supplier, and financial reports with CSV/PDF export. Dashboard with Top 5 Products and Top 5 Customers widgets filterable by period (month, 3M, 6M, 1Y, all time).
 - **Notifications** — Low stock alerts, credit limit warnings, overdue customer reminders, and pending approval notifications
 - **Audit Trail** — Append-only, immutable record of all critical system events
-- **Security** — Role-based access control (Admin, Manager, Salesperson, Storekeeper) with JWT authentication, rate limiting, sliding-window account lockout (locks after 5 failed logins within 15 minutes for 30 minutes), admin-initiated password reset for users who forget theirs, forced password change on first login, and case-insensitive usernames and emails (stored and matched in lowercase, so `John` and `john` are the same account)
+- **Security** — Role-based access control (Admin, Manager, Salesperson, Storekeeper) with JWT authentication, rate limiting, sliding-window account lockout (locks after 5 failed logins within 15 minutes for 30 minutes), admin-initiated password reset for users who forget theirs, forced password change on first login, case-insensitive usernames and emails (stored and matched in lowercase, so `John` and `john` are the same account), and optional encrypted-at-rest database backups (AES-256-CBC)
 
 ## Technology Stack
 
@@ -46,7 +46,7 @@ Invenzo digitizes and streamlines operations for product-based businesses, repla
 | Rate Limiting | slowapi + Redis |
 | Background Jobs | ARQ (async Redis-based task queue) |
 | Error Tracking | Sentry |
-| Testing (Backend) | pytest (1116 unit tests), Hypothesis (property-based) |
+| Testing (Backend) | pytest (1100+ unit tests), Hypothesis (property-based) |
 | Testing (Frontend) | Vitest (48 unit tests), Playwright (E2E + accessibility via axe-core) |
 | Deployment | Docker, Docker Compose, VPS + Caddy (automatic HTTPS) |
 
@@ -106,7 +106,7 @@ Invenzo digitizes and streamlines operations for product-based businesses, repla
    | Frontend (UI) | http://localhost:3000 |
    | Backend API | http://localhost:8000 |
    | Health check | http://localhost:8000/health |
-   | API Docs (Swagger) | http://localhost:8000/docs |
+   | API Docs (Swagger) | http://localhost:8000/docs (development only — disabled in production) |
 
 9. **Get your admin password.** On a fresh database the backend auto-creates an `admin` account and prints the temporary password to the container logs exactly once:
    ```bash
@@ -138,6 +138,8 @@ docker-compose run --rm --profile backup -e BACKUP_LABEL=pre-release backup
 ```
 
 In production, `docker-compose.production.yml` includes a scheduled backup service that runs automatically every day at 02:00 UTC. See [OPERATIONS_RUNBOOK.md §4](OPERATIONS_RUNBOOK.md#4-backup-and-restore) for restore instructions, off-site storage, and restore verification.
+
+**Encrypted backups (recommended for production):** set `BACKUP_ENCRYPTION_KEY` and dumps are encrypted at rest with AES-256-CBC (PBKDF2), producing `.dump.enc` files; `restore.sh` auto-detects and decrypts them (it needs the same key). `scripts/provision_customer.sh` generates a unique key per customer automatically. **Store the key safely — without it, encrypted backups cannot be restored.** With no key set, backups stay plaintext (backward compatible).
 
 ### Initial Admin Provisioning
 
@@ -230,14 +232,14 @@ Each user sees only their own notifications. Notifications support read/unread s
 │   │   ├── config.py            # Settings (pydantic-settings)
 │   │   ├── database.py          # Async SQLAlchemy engine
 │   │   ├── health.py            # Readiness/liveness probes
-│   │   ├── models/              # SQLAlchemy ORM models (27 tables)
+│   │   ├── models/              # SQLAlchemy ORM models
 │   │   ├── schemas/             # Pydantic request/response schemas
 │   │   ├── services/            # Business logic layer + background jobs (ARQ)
 │   │   ├── routers/             # FastAPI route handlers
 │   │   ├── middleware/          # Auth, rate limiting, security headers, telemetry
 │   │   └── utils/               # FIFO, PDF generation, barcode tools
-│   ├── alembic/                 # Database migrations (14 revisions)
-│   ├── tests/                   # 1116 unit + property-based tests
+│   ├── alembic/                 # Database migrations (16 revisions)
+│   ├── tests/                   # 1100+ unit + property-based tests
 │   ├── scripts/                 # CLI utilities (create_user, seed, setup_db)
 │   ├── Dockerfile
 │   └── requirements.txt
@@ -266,7 +268,7 @@ Each user sees only their own notifications. Notifications support read/unread s
 | Users | `/api/v1/users` | CRUD (Admin only) |
 | Spare Parts | `/api/v1/spare-parts` | CRUD, search, barcode |
 | Stock | `/api/v1/stock` | Locations, movements |
-| Sales | `/api/v1/sales` | Create, confirm, return |
+| Sales | `/api/v1/sales` | List (filter by status, date range, product), create, confirm, return |
 | Customers | `/api/v1/customers` | CRUD, ledger, aging |
 | Credit | `/api/v1/credit` | Payments, adjustments |
 | Suppliers | `/api/v1/suppliers` | CRUD, balance, aging |
@@ -326,7 +328,7 @@ Invenzo is **single-tenant**: one running stack serves one business, with its ow
 
 - **Product domain:** `invenzo.app`
 - **Per-customer subdomain:** each business is served at `<slug>.invenzo.app` (e.g. `bro.invenzo.app`)
-- **Host:** a single small VPS (Hetzner Cloud, CX22 — 2 vCPU / 4 GB, ~$5/month) in the US East (Ashburn) region
+- **Host:** a single small VPS (Hetzner Cloud, CX23 — 2 vCPU / 4 GB, ~$6.50/month). Region chosen for latency to your users (e.g. a EU region such as Helsinki is closest of the available sites to West Africa; US East for US users)
 - **Onboarding a new business:** run `scripts/provision_customer.sh <slug> invenzo.app`, which generates that instance's `.env`, per-instance Docker Compose override, and Caddy vhost with fresh secrets and unique ports — no application code changes and no DNS changes (a wildcard `*.invenzo.app` record covers every subdomain).
 
 > **Why one instance per customer:** complete data isolation (a bug can never leak one business's data to another), trivial per-customer backup/restore and deletion, and zero shared state. Several small stacks fit comfortably on one 4 GB box; move a customer to its own VPS whenever it needs more headroom.
@@ -368,7 +370,7 @@ This information appears on all generated invoices. To update it later, change t
 ### Backend Tests
 
 ```bash
-# Run all backend tests (1116 unit tests)
+# Run all backend tests (1100+ unit tests)
 docker exec invenzo-backend pytest
 
 # Run with verbose output
@@ -420,6 +422,8 @@ cd frontend && npm run perf:lighthouse
 | `ENVIRONMENT` | `development` | `development`, `staging`, or `production` |
 | `SENTRY_DSN` | — | Sentry error tracking DSN (optional, enabled in production) |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000/api/v1` | Backend URL for frontend (must include /api/v1) |
+| `BACKUP_ENCRYPTION_KEY` | — | Optional passphrase; when set, database backups are encrypted at rest (AES-256-CBC). Keep it safe — required to restore. |
+| `DATABASE_POOL_SIZE` | `5` | SQLAlchemy pool size per worker process (kept small so multiple stacks fit under Postgres `max_connections`) |
 
 ## Scale Targets
 
