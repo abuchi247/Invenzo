@@ -14,7 +14,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import CurrentUser, DbSession
@@ -71,24 +71,95 @@ async def list_sales(
         alias="status",
         description="Filter by sale status (DRAFT, CONFIRMED, RETURNED, CANCELLED)",
     ),
+    search: Optional[str] = Query(
+        default=None,
+        description="Search by invoice number (partial, case-insensitive)",
+    ),
+    date_from: Optional[str] = Query(
+        default=None,
+        description="Include sales on/after this date (YYYY-MM-DD, inclusive)",
+    ),
+    date_to: Optional[str] = Query(
+        default=None,
+        description="Include sales on/before this date (YYYY-MM-DD, inclusive)",
+    ),
+    product: Optional[str] = Query(
+        default=None,
+        description="Only sales containing a matching product (part number or name)",
+    ),
+    sort_by: Optional[str] = Query(
+        default="created_at",
+        description="Sort field: created_at, total_amount, or invoice_number",
+    ),
+    sort_direction: Optional[str] = Query(
+        default="desc",
+        description="Sort direction: asc or desc",
+    ),
 ) -> SaleListResponse:
-    """List all sales with optional status filtering and pagination.
+    """List sales with status, date-range, product, and text filters.
 
     Accessible by Salesperson, Manager, and Admin roles.
     """
-    # Count query — exclude soft-deleted sales
-    count_stmt = select(func.count()).select_from(Sale).filter(Sale.deleted_at.is_(None))
-    if status_filter:
-        count_stmt = count_stmt.filter(Sale.status == status_filter)
+    from datetime import datetime, timezone, timedelta
+    from app.models.sale import SaleItem
+    from app.models.spare_part import SparePart
+
+    def _apply_filters(stmt):
+        """Apply the shared WHERE clauses to a count or data statement."""
+        stmt = stmt.filter(Sale.deleted_at.is_(None))
+        if status_filter:
+            stmt = stmt.filter(Sale.status == status_filter)
+        if search:
+            stmt = stmt.filter(Sale.invoice_number.ilike(f"%{search.strip()}%"))
+        # Date range on created_at. date_to is inclusive of the whole day.
+        if date_from:
+            try:
+                start = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                stmt = stmt.filter(Sale.created_at >= start)
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                end = datetime.strptime(date_to, "%Y-%m-%d").replace(
+                    tzinfo=timezone.utc
+                ) + timedelta(days=1)
+                stmt = stmt.filter(Sale.created_at < end)
+            except ValueError:
+                pass
+        # "Goods sold" — sales that contain a line item matching the product.
+        if product:
+            like = f"%{product.strip()}%"
+            product_subq = (
+                select(SaleItem.id)
+                .join(SparePart, SparePart.id == SaleItem.spare_part_id)
+                .filter(
+                    SaleItem.sale_id == Sale.id,
+                    or_(
+                        SparePart.part_number.ilike(like),
+                        SparePart.name.ilike(like),
+                    ),
+                )
+            )
+            stmt = stmt.filter(product_subq.exists())
+        return stmt
+
+    # Count query — exclude soft-deleted sales, apply the same filters.
+    count_stmt = _apply_filters(select(func.count()).select_from(Sale))
     count_result = await db.execute(count_stmt)
     total = count_result.scalar() or 0
 
-    # Data query — exclude soft-deleted sales
+    # Sorting — whitelist the column, default to created_at desc.
+    sort_columns = {
+        "created_at": Sale.created_at,
+        "total_amount": Sale.total_amount,
+        "invoice_number": Sale.invoice_number,
+    }
+    sort_col = sort_columns.get(sort_by or "created_at", Sale.created_at)
+    order_by = sort_col.asc() if (sort_direction or "desc").lower() == "asc" else sort_col.desc()
+
+    # Data query — exclude soft-deleted sales, apply filters + sort + paging.
     offset = (page - 1) * page_size
-    data_stmt = select(Sale).filter(Sale.deleted_at.is_(None)).order_by(Sale.created_at.desc())
-    if status_filter:
-        data_stmt = data_stmt.filter(Sale.status == status_filter)
-    data_stmt = data_stmt.offset(offset).limit(page_size)
+    data_stmt = _apply_filters(select(Sale)).order_by(order_by).offset(offset).limit(page_size)
 
     result = await db.execute(data_stmt)
     sales = list(result.scalars().all())
