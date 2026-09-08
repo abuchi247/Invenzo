@@ -123,23 +123,169 @@ Invenzo digitizes and streamlines operations for product-based businesses, repla
 
 > **Local development with hot-reload:** if you want live code reloading on the frontend, stop the frontend container (`docker compose stop frontend`) and run `npm run dev` in the `frontend/` directory instead. The backend services stay in Docker.
 
-### Database backups
+### Database backups and restore
 
-Run an on-demand backup at any time (results go to `./backups/` on the host):
+#### When to run backups
+
+Production runs an automatic PostgreSQL backup every day at **02:00 UTC** when both `backup-runner` and `backup-scheduler` are running. Also run an on-demand backup immediately before:
+
+- Deploying migrations or a major application change
+- Deleting or modifying customer, inventory, or financial data
+- Restoring a database
+- VPS, Docker, PostgreSQL, or other infrastructure maintenance
+- Testing a risky operational procedure
+
+An automatic backup is not a substitute for an off-server copy or a restore drill. Copy the backup **and its `.sha256` checksum sidecar** to restricted off-site storage, and periodically verify that a restore succeeds.
+
+#### Local development backup
+
+Results go to `./backups/` on the host. The Compose profile uses the backup service's `sh /backup.sh` entrypoint:
 
 ```bash
-docker-compose run --rm --profile backup backup
+docker compose --profile backup run --rm backup
+
+docker compose --profile backup run --rm -e BACKUP_LABEL=pre-release backup
 ```
 
-Label it before a release to make it easy to find later:
+#### Production deployment verification and on-demand backup
+
+For a customer instance such as `skons`, run this from the repository root after every deployment:
 
 ```bash
-docker-compose run --rm --profile backup -e BACKUP_LABEL=pre-release backup
+cd ~/Invenzo
+git pull
+
+docker compose --env-file customers/skons/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/skons/docker-compose.override.yml \\
+  up -d --build
+
+docker compose --env-file customers/skons/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/skons/docker-compose.override.yml \\
+  exec backend alembic current
+
+curl -sS https://skons.invenzo.app/health
+
+docker compose --env-file customers/skons/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/skons/docker-compose.override.yml \\
+  ps
 ```
 
-In production, `docker-compose.production.yml` includes a scheduled backup service that runs automatically every day at 02:00 UTC. See [OPERATIONS_RUNBOOK.md §4](OPERATIONS_RUNBOOK.md#4-backup-and-restore) for restore instructions, off-site storage, and restore verification.
+The migration command must report the expected deployed Alembic head, and `/health` must report a healthy database and Redis before the deployment is considered complete.
 
-**Encrypted backups (recommended for production):** set `BACKUP_ENCRYPTION_KEY` and dumps are encrypted at rest with AES-256-CBC (PBKDF2), producing `.dump.enc` files; `restore.sh` auto-detects and decrypts them (it needs the same key). `scripts/provision_customer.sh` generates a unique key per customer automatically. **Store the key safely — without it, encrypted backups cannot be restored.** With no key set, backups stay plaintext (backward compatible).
+Run an on-demand backup against the already-running production runner. Using `exec` is important for encrypted deployments because the runner installs OpenSSL during startup:
+
+```bash
+docker compose --env-file customers/skons/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/skons/docker-compose.override.yml \\
+  exec backup-runner sh /backup.sh
+
+# Optional label for a pre-release or maintenance backup:
+docker compose --env-file customers/skons/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/skons/docker-compose.override.yml \\
+  exec -e BACKUP_LABEL=pre-release backup-runner sh /backup.sh
+
+# Confirm the backup and checksum files:
+docker compose --env-file customers/skons/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/skons/docker-compose.override.yml \\
+  exec backup-runner ls -lh /backups
+```
+
+#### Encrypted backups
+
+`BACKUP_ENCRYPTION_KEY` is generated per customer by `scripts/provision_customer.sh`. When set, backups are stored as AES-256-CBC/PBKDF2-encrypted `.dump.enc` files, with a checksum at `.dump.enc.sha256`; the plaintext dump is removed. Store the key in a password manager or secret manager outside the VPS. **Never commit it, print it into ordinary logs, or store it only on the server.** Without the same key, encrypted backups cannot be restored.
+
+For an older production instance that has no key, generate and save the key securely before adding it to that customer's `.env`, then recreate the runner so it receives the variable:
+
+```bash
+KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+printf 'BACKUP_ENCRYPTION_KEY=%s\\n' "$KEY" >> customers/skons/.env
+# Save $KEY in the password/secret manager before continuing.
+unset KEY
+
+docker compose --env-file customers/skons/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/skons/docker-compose.override.yml \\
+  up -d --force-recreate backup-runner backup-scheduler
+```
+
+Verify the runner log and `/backups` listing before relying on the next scheduled backup:
+
+```bash
+docker compose --env-file customers/skons/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/skons/docker-compose.override.yml \\
+  logs --tail=50 backup-runner
+```
+
+#### Safe restore procedure
+
+A restore is for a recovery event or a restore drill, not a normal deployment step. **Do not restore directly over production first.** Test the backup in a separate database or server whenever possible.
+
+Create a temporary database in the customer PostgreSQL service:
+
+```bash
+docker compose --env-file customers/skons/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/skons/docker-compose.override.yml \\
+  exec postgres sh -c \\
+  'psql -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE invenzo_restore_test;"'
+```
+
+Restore the latest backup through `backup-runner` (that is where `/restore.sh`, `/backups`, OpenSSL, and the encryption key are available):
+
+```bash
+docker compose --env-file customers/skons/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/skons/docker-compose.override.yml \\
+  exec -e PGDATABASE=invenzo_restore_test backup-runner \\
+  sh /restore.sh /backups/latest.dump
+```
+
+`restore.sh` verifies the checksum when present, detects `.dump.enc`, decrypts it with `BACKUP_ENCRYPTION_KEY`, restores the custom-format dump, and removes the temporary decrypted file. Legacy plaintext `.dump` backups remain supported. The target database must already exist, and the restore script drops/recreates objects in that target database.
+
+After the drill, remove the temporary database:
+
+```bash
+docker compose --env-file customers/skons/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/skons/docker-compose.override.yml \\
+  exec postgres sh -c \\
+  'psql -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE invenzo_restore_test;"'
+```
+
+For an emergency production restore, first take a final on-demand backup, confirm the exact target database and backup filename, obtain explicit approval, and stop application traffic before restoring:
+
+```bash
+docker compose --env-file customers/skons/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/skons/docker-compose.override.yml \\
+  exec backup-runner sh /backup.sh
+
+docker compose --env-file customers/skons/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/skons/docker-compose.override.yml \\
+  stop backend worker frontend
+
+# Replace invenzo and the filename only after confirming both values.
+docker compose --env-file customers/skons/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/skons/docker-compose.override.yml \\
+  exec -e PGDATABASE=invenzo backup-runner \\
+  sh /restore.sh /backups/<confirmed-backup-file.dump.enc>
+
+docker compose --env-file customers/skons/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/skons/docker-compose.override.yml \\
+  up -d backend worker frontend
+```
+
+A production restore overwrites current database objects. Confirm the backup checksum, preserve the encryption key, run `alembic current`, check `/health`, and perform critical data checks before reopening traffic. See [OPERATIONS_RUNBOOK.md §4](OPERATIONS_RUNBOOK.md#4-backup-and-restore) for the complete operational procedure.
 
 ### Initial Admin Provisioning
 

@@ -133,15 +133,17 @@ If a migration fails, the migration job and deployment must fail closed: keep th
 
 PostgreSQL is the source of truth for financial, inventory, audit, and user data. Redis contains sessions, rate-limit state, and background-job state; it is not a substitute for a PostgreSQL backup.
 
-### Automated daily backups (production)
+### When backups run
 
-The production Compose stack includes a scheduled backup service. Start the full stack with backup enabled:
+The production Compose stack includes a scheduled backup service. Start the full stack with:
 
 ```bash
 docker compose -f docker-compose.production.yml up -d
 ```
 
-This starts `backup-scheduler` (ofelia cron) and `backup-runner`. Ofelia reads the schedule label from `backup-runner` and executes `sh /backup.sh` inside that container at the configured time.
+This starts `backup-scheduler` (Ofelia cron) and `backup-runner`. Ofelia reads the schedule label from `backup-runner` and executes `sh /backup.sh` inside that running container at the configured time. The default schedule is daily at **02:00 UTC**.
+
+Run an on-demand backup before deployments, schema migrations, destructive customer/inventory/financial changes, infrastructure maintenance, database restores, or any risky operational test. A restore is for a recovery event or restore drill, not a normal deployment step; perform drills against a temporary database.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -172,26 +174,38 @@ List available backups:
 docker compose -f docker-compose.production.yml exec backup-runner ls -lh /backups/
 ```
 
-### On-demand backup (before a release or ad-hoc)
+### On-demand backup
 
-Development stack:
+Development backups use the `backup` profile and write to `./backups/`:
 ```bash
-# Run a backup against the development postgres container
-docker-compose run --rm --profile backup backup
-
-# With a pre-release label
-docker-compose run --rm --profile backup -e BACKUP_LABEL=pre-release backup
-# → creates: invenzo-2026-08-09T12-00-00.pre-release.dump
+docker compose --profile backup run --rm backup
+docker compose --profile backup run --rm -e BACKUP_LABEL=pre-release backup
 ```
 
-Production stack (the `backup-runner` container stays idle for the scheduler, so
-pass the backup command explicitly for an on-demand run):
+For production, use `exec` against the already-running runner. This is important for encrypted backups because the production runner installs OpenSSL during startup; a new `run --rm` container can bypass that initialization:
 ```bash
-docker compose -f docker-compose.production.yml run --rm backup-runner sh /backup.sh
-docker compose -f docker-compose.production.yml run --rm -e BACKUP_LABEL=pre-release backup-runner sh /backup.sh
+docker compose -f docker-compose.production.yml exec backup-runner sh /backup.sh
+docker compose -f docker-compose.production.yml exec -e BACKUP_LABEL=pre-release \\
+  backup-runner sh /backup.sh
 ```
 
-The backup lands in `./backups/` (dev) or the `backup-data` volume (production).
+For a per-customer deployment, include its environment and override files:
+```bash
+docker compose --env-file customers/<slug>/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/<slug>/docker-compose.override.yml \\
+  exec backup-runner sh /backup.sh
+```
+
+Confirm the new dump and checksum exist before continuing with the risky operation:
+```bash
+docker compose --env-file customers/<slug>/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/<slug>/docker-compose.override.yml \\
+  exec backup-runner ls -lh /backups
+```
+
+The backup lands in `./backups/` (development) or the `backup-data` volume (production).
 
 ### Off-site storage
 
@@ -209,9 +223,48 @@ docker run --rm \
 
 For managed PostgreSQL services (Render, Supabase, RDS), use the platform's point-in-time backup and restore instead of the self-managed script.
 
-### Restore
+### Restore drill in an isolated database
 
-**Never restore directly into the live production database without a reviewed maintenance plan. Always restore to an isolated test database first.**
+**Never restore directly into the live production database without a reviewed maintenance plan.** The target database must already exist because `pg_restore` restores objects but does not create the database.
+
+For a customer deployment, create a temporary database and restore through `backup-runner`, which has `/restore.sh`, `/backups`, OpenSSL, and the encryption key:
+
+```bash
+docker compose --env-file customers/<slug>/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/<slug>/docker-compose.override.yml \\
+  exec postgres sh -c \\
+  'psql -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE invenzo_restore_test;"'
+
+docker compose --env-file customers/<slug>/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/<slug>/docker-compose.override.yml \\
+  exec -e PGDATABASE=invenzo_restore_test backup-runner \\
+  sh /restore.sh /backups/latest.dump
+```
+
+`restore.sh` verifies the checksum when present, detects `.dump.enc`, decrypts it with `BACKUP_ENCRYPTION_KEY`, restores the custom-format dump, and removes the temporary decrypted file. Legacy plaintext `.dump` backups remain supported. It shows the first 20 archive objects and waits five seconds before restoring.
+
+After the drill, remove the temporary database:
+
+```bash
+docker compose --env-file customers/<slug>/.env \\
+  -f docker-compose.production.yml \\
+  -f customers/<slug>/docker-compose.override.yml \\
+  exec postgres sh -c \\
+  'psql -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE invenzo_restore_test;"'
+```
+
+For local development, create the target database first and override the backup service entrypoint so `/restore.sh` is invoked instead of `/backup.sh`:
+
+```bash
+docker compose exec postgres sh -c \\
+  'psql -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE invenzo_restore_test;"'
+docker compose --profile backup run --rm --entrypoint sh \\
+  -e PGDATABASE=invenzo_restore_test backup \\
+  /restore.sh /backups/latest.dump
+```
+
 
 ```bash
 # 1. Verify backup integrity
