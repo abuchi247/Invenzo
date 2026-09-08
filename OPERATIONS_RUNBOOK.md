@@ -147,12 +147,20 @@ This starts `backup-scheduler` (ofelia cron) and `backup-runner`. Ofelia reads t
 |---|---|---|
 | `BACKUP_SCHEDULE` | `0 2 * * *` | Cron expression — daily at 02:00 UTC |
 | `BACKUP_RETAIN` | `30` | Number of daily dumps to keep locally |
+| `BACKUP_ENCRYPTION_KEY` | (unset) | Passphrase for at-rest encryption. When set, dumps are encrypted with OpenSSL AES-256-CBC (PBKDF2) and the plaintext is removed. When unset, dumps are plaintext. `provision_customer.sh` generates one per customer. **Keep it safe — you need it to restore, and losing it makes the encrypted backups unrecoverable.** |
 
 Backup files land in the `backup-data` Docker named volume:
-- `invenzo-YYYY-MM-DDTHH-MM-SS.dump` — pg_dump custom format
-- `invenzo-YYYY-MM-DDTHH-MM-SS.dump.sha256` — SHA-256 checksum
-- `latest.dump` — symlink to the most recent backup
+- `invenzo-YYYY-MM-DDTHH-MM-SS.dump` — pg_dump custom format (unencrypted)
+- `invenzo-YYYY-MM-DDTHH-MM-SS.dump.enc` — AES-256-CBC encrypted dump (when `BACKUP_ENCRYPTION_KEY` is set)
+- `invenzo-....dump[.enc].sha256` — SHA-256 checksum (over the stored file)
+- `latest.dump` — symlink to the most recent backup (`.dump` or `.dump.enc`)
 - `backup.log` — append-only log of every backup run
+
+> **Encryption & restore:** `restore.sh` auto-detects `.enc` files, verifies the
+> checksum, then decrypts to a temporary file (removed on exit) before
+> restoring — so it needs `BACKUP_ENCRYPTION_KEY` in its environment (the
+> backup-runner container already has it from the `.env`). Plaintext `.dump`
+> files restore unchanged, so older backups remain recoverable.
 
 Check backup logs:
 ```bash

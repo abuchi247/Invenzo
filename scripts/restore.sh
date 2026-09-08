@@ -36,8 +36,18 @@ PGPORT="${PGPORT:-5432}"
 PGDATABASE="${PGDATABASE:-}"
 PGUSER="${PGUSER:-${POSTGRES_USER:-postgres}}"
 PGPASSWORD="${PGPASSWORD:-${POSTGRES_PASSWORD:-}}"
+BACKUP_ENCRYPTION_KEY="${BACKUP_ENCRYPTION_KEY:-}"
 
 export PGPASSWORD
+
+# Cleanup for any temporary decrypted file (removed on exit, even on error).
+DECRYPTED_TMP=""
+cleanup() {
+    if [ -n "${DECRYPTED_TMP}" ] && [ -f "${DECRYPTED_TMP}" ]; then
+        rm -f "${DECRYPTED_TMP}"
+    fi
+}
+trap cleanup EXIT INT TERM
 
 if [ -z "${PGDATABASE}" ]; then
     echo "[restore] ERROR: PGDATABASE must be set explicitly — refusing to guess to prevent accidental production overwrite" >&2
@@ -77,6 +87,34 @@ if [ -f "${CHECKSUM_FILE}" ]; then
 else
     echo "[restore] WARNING: no checksum file at ${CHECKSUM_FILE} — proceeding without verification"
 fi
+
+# ---- Decrypt (if the backup is encrypted) ------------------------------------
+# Encrypted backups end in .enc (see backup.sh). The checksum above was taken
+# over the encrypted file, so it is verified first; we then decrypt to a
+# temporary file (cleaned up on exit) and restore from that.
+case "${REAL_DUMP_FILE}" in
+    *.enc)
+        if [ -z "${BACKUP_ENCRYPTION_KEY}" ]; then
+            echo "[restore] ERROR: '${DUMP_FILE}' is encrypted but BACKUP_ENCRYPTION_KEY is not set" >&2
+            exit 4
+        fi
+        if ! command -v openssl >/dev/null 2>&1; then
+            echo "[restore] ERROR: encrypted backup but openssl is not available to decrypt" >&2
+            exit 4
+        fi
+        DECRYPTED_TMP="$(mktemp "${TMPDIR:-/tmp}/invenzo-restore.XXXXXX")"
+        echo "[restore] Decrypting backup..."
+        if ! openssl enc -d -aes-256-cbc -pbkdf2 \
+                -in "${DUMP_FILE}" \
+                -out "${DECRYPTED_TMP}" \
+                -pass env:BACKUP_ENCRYPTION_KEY; then
+            echo "[restore] ERROR: decryption failed — wrong BACKUP_ENCRYPTION_KEY or corrupt file" >&2
+            exit 4
+        fi
+        DUMP_FILE="${DECRYPTED_TMP}"
+        echo "[restore] Decrypted OK"
+        ;;
+esac
 
 # ---- Show backup metadata ----------------------------------------------------
 echo "[restore] Backup contents (first 20 objects):"

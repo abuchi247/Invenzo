@@ -194,6 +194,10 @@ services:
       BACKUP_DIR: /backups
       BACKUP_RETAIN: ${BACKUP_RETAIN:-30}
       BACKUP_LABEL: ${BACKUP_LABEL:-}
+      # When set, backups are encrypted at rest (AES-256-CBC). Optional so
+      # existing deployments keep working; the provision script generates one
+      # per customer. restore.sh needs the same key to decrypt.
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-}
     volumes:
       - backup-data:/backups
       - ./scripts/backup.sh:/backup.sh:ro
@@ -207,8 +211,14 @@ services:
     #
     # Clear the postgres image's entrypoint so `command` (and any `run` override)
     # executes verbatim rather than being wrapped by docker-entrypoint.sh.
+    #
+    # postgres:15-alpine does not ship openssl, which backup.sh needs to
+    # encrypt dumps at rest. Install it once at startup, then idle so the
+    # ofelia scheduler can `docker exec sh /backup.sh` into this container.
+    # If BACKUP_ENCRYPTION_KEY is unset, backups are plaintext and openssl is
+    # simply unused.
     entrypoint: [""]
-    command: ["tail", "-f", "/dev/null"]
+    command: ["sh", "-c", "apk add --no-cache openssl || echo 'WARN: openssl install failed; encrypted backups will fail until resolved'; exec tail -f /dev/null"]
     depends_on:
       postgres:
         condition: service_healthy

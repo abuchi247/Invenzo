@@ -83,6 +83,7 @@ gen() { python3 -c "import secrets,sys; print(secrets.token_urlsafe(int(sys.argv
 SECRET_KEY="$(gen 48)"
 POSTGRES_PASSWORD="$(gen 24)"
 REDIS_PASSWORD="$(gen 24)"
+BACKUP_ENCRYPTION_KEY="$(gen 32)"
 
 mkdir -p "$OUT_DIR"
 
@@ -101,6 +102,10 @@ POSTGRES_DB=invenzo
 
 # --- Redis (required in production) ---
 REDIS_PASSWORD=${REDIS_PASSWORD}
+
+# --- Backups (encrypted at rest with this key; keep it safe — you need it to
+#     restore, and losing it means the encrypted backups are unrecoverable) ---
+BACKUP_ENCRYPTION_KEY=${BACKUP_ENCRYPTION_KEY}
 
 # --- Backend / JWT ---
 SECRET_KEY=${SECRET_KEY}

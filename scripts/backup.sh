@@ -23,12 +23,18 @@
 #   BACKUP_DIR    Where to store dumps      (default: /backups)
 #   BACKUP_RETAIN How many backups to keep  (default: 30)
 #   BACKUP_LABEL  Optional filename label   (e.g. "pre-release")
+#   BACKUP_ENCRYPTION_KEY  Optional passphrase. When set, the dump is
+#                 encrypted at rest with OpenSSL AES-256-CBC (PBKDF2) and the
+#                 plaintext is removed; the output gains a .enc suffix. When
+#                 unset, backups stay plaintext (unchanged behaviour). restore.sh
+#                 auto-detects .enc files and needs the same key to decrypt.
 #
 # Output files (all in BACKUP_DIR):
-#   invenzo-YYYY-MM-DDTHH-MM-SS[.label].dump        — pg_dump custom format
-#   invenzo-YYYY-MM-DDTHH-MM-SS[.label].dump.sha256 — SHA-256 checksum
-#   latest.dump                                              — symlink to newest backup
-#   backup.log                                               — append-only run log
+#   invenzo-YYYY-MM-DDTHH-MM-SS[.label].dump[.enc]        — pg_dump custom format
+#                                                            (.enc when encrypted)
+#   invenzo-...dump[.enc].sha256                          — SHA-256 checksum
+#   latest.dump                                           — symlink to newest backup
+#   backup.log                                            — append-only run log
 # =============================================================================
 set -eu
 
@@ -40,6 +46,7 @@ PGPASSWORD="${PGPASSWORD:-${POSTGRES_PASSWORD:-}}"
 BACKUP_DIR="${BACKUP_DIR:-/backups}"
 BACKUP_RETAIN="${BACKUP_RETAIN:-30}"
 BACKUP_LABEL="${BACKUP_LABEL:-}"
+BACKUP_ENCRYPTION_KEY="${BACKUP_ENCRYPTION_KEY:-}"
 
 export PGPASSWORD
 
@@ -95,6 +102,35 @@ fi
 BACKUP_SIZE="$(du -sh "${FILEPATH}" | cut -f1)"
 log "pg_dump complete: size=${BACKUP_SIZE}"
 
+# ---- Encryption (optional) ---------------------------------------------------
+# When BACKUP_ENCRYPTION_KEY is set, encrypt the dump at rest with AES-256-CBC
+# (PBKDF2 key derivation) and remove the plaintext. The checksum below is then
+# taken over the encrypted file. If encryption is requested but openssl is
+# missing, fail loudly and remove the plaintext dump rather than silently
+# leaving an unencrypted backup on disk.
+if [ -n "${BACKUP_ENCRYPTION_KEY}" ]; then
+    if ! command -v openssl >/dev/null 2>&1; then
+        log "ERROR: BACKUP_ENCRYPTION_KEY is set but openssl is not available — removing plaintext dump"
+        rm -f "${FILEPATH}"
+        exit 1
+    fi
+    ENC_FILEPATH="${FILEPATH}.enc"
+    if ! openssl enc -aes-256-cbc -pbkdf2 -salt \
+            -in "${FILEPATH}" \
+            -out "${ENC_FILEPATH}" \
+            -pass env:BACKUP_ENCRYPTION_KEY; then
+        log "ERROR: encryption failed — removing plaintext and partial encrypted file"
+        rm -f "${FILEPATH}" "${ENC_FILEPATH}"
+        exit 1
+    fi
+    rm -f "${FILEPATH}"          # never keep the plaintext once encrypted
+    FILEPATH="${ENC_FILEPATH}"   # everything downstream operates on the .enc file
+    FILENAME="$(basename "${FILEPATH}")"
+    log "Encrypted at rest: file=${FILENAME} (AES-256-CBC, PBKDF2)"
+else
+    log "WARNING: BACKUP_ENCRYPTION_KEY not set — backup is stored UNENCRYPTED"
+fi
+
 # ---- Checksum ----------------------------------------------------------------
 CHECKSUM_FILE="${FILEPATH}.sha256"
 if command -v sha256sum >/dev/null 2>&1; then
@@ -114,14 +150,16 @@ ln -sf "${FILEPATH}" "${BACKUP_DIR}/latest.dump"
 log "Symlink updated: latest.dump -> ${FILEPATH}"
 
 # ---- Retention ---------------------------------------------------------------
-# Count existing dumps; delete oldest ones beyond the retain limit.
-TOTAL=$(find "${BACKUP_DIR}" -maxdepth 1 -name "invenzo-*.dump" \
+# Count existing dumps; delete oldest ones beyond the retain limit. The glob
+# "invenzo-*.dump*" matches both plaintext (.dump) and encrypted (.dump.enc)
+# backups; the "! -name *.sha256" exclusion drops the checksum sidecars.
+TOTAL=$(find "${BACKUP_DIR}" -maxdepth 1 -name "invenzo-*.dump*" \
           ! -name "*.sha256" | wc -l | tr -d ' ')
 DELETE_COUNT=$((TOTAL - BACKUP_RETAIN))
 
 if [ "${DELETE_COUNT}" -gt 0 ]; then
     log "Retention: keeping ${BACKUP_RETAIN} of ${TOTAL}, removing ${DELETE_COUNT} old backup(s)"
-    find "${BACKUP_DIR}" -maxdepth 1 -name "invenzo-*.dump" \
+    find "${BACKUP_DIR}" -maxdepth 1 -name "invenzo-*.dump*" \
         ! -name "*.sha256" | sort | head -n "${DELETE_COUNT}" | while read -r OLD; do
         log "Removing: ${OLD}"
         rm -f "${OLD}" "${OLD}.sha256"
@@ -129,7 +167,7 @@ if [ "${DELETE_COUNT}" -gt 0 ]; then
 fi
 
 # ---- Summary -----------------------------------------------------------------
-REMAINING=$(find "${BACKUP_DIR}" -maxdepth 1 -name "invenzo-*.dump" \
+REMAINING=$(find "${BACKUP_DIR}" -maxdepth 1 -name "invenzo-*.dump*" \
               ! -name "*.sha256" | wc -l | tr -d ' ')
 log "Done. Retained ${REMAINING}/${BACKUP_RETAIN} backup(s)."
 log "---"
