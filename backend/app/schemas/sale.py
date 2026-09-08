@@ -239,6 +239,9 @@ class SaleSummaryResponse(BaseModel):
     amount_paid: Optional[Decimal] = Field(default=Decimal("0.00"), description="Amount paid")
     created_at: Optional[datetime] = Field(default=None, description="Created timestamp")
     updated_at: Optional[datetime] = Field(default=None, description="Updated timestamp")
+    created_by_username: Optional[str] = Field(
+        default=None, description="Username of the user who issued the sale"
+    )
 
     model_config = {"from_attributes": True}
 

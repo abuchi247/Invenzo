@@ -136,6 +136,11 @@ export default function SalesPage() {
       render: (item) => <span>{item.customer_name ?? 'Walk-in'}</span>,
     },
     {
+      key: 'created_by_username',
+      header: 'Issued by',
+      render: (item) => <span>{item.created_by_username ?? '—'}</span>,
+    },
+    {
       key: 'total_amount',
       header: 'Total',
       sortable: true,

@@ -102,10 +102,30 @@ async def list_sales(
         cust_result = await db.execute(cust_stmt)
         customer_map = {row.id: row.name for row in cust_result.all()}
 
+    # Enrich with issuing-user names (created_by is a UUID string). Batch-resolve.
+    from app.models.user import User
+    creator_ids = set()
+    for s in sales:
+        if s.created_by:
+            try:
+                creator_ids.add(UUID(str(s.created_by)))
+            except (ValueError, TypeError):
+                pass
+    username_map: dict = {}
+    if creator_ids:
+        user_stmt = select(User.id, User.username).filter(User.id.in_(creator_ids))
+        user_result = await db.execute(user_stmt)
+        username_map = {row.id: row.username for row in user_result.all()}
+
     data = []
     for s in sales:
         resp = SaleSummaryResponse.model_validate(s)
         resp.customer_name = customer_map.get(s.customer_id) if s.customer_id else None
+        if s.created_by:
+            try:
+                resp.created_by_username = username_map.get(UUID(str(s.created_by)))
+            except (ValueError, TypeError):
+                resp.created_by_username = None
         data.append(resp)
 
     return SaleListResponse(
