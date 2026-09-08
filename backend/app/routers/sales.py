@@ -171,7 +171,9 @@ async def create_sale(
         amount_paid=request.amount_paid,
     )
     await db.commit()
-    await db.refresh(sale)
+    # Re-fetch with items + spare_part eager-loaded so serializing the response
+    # never triggers a lazy load (raises MissingGreenlet in async SQLAlchemy).
+    sale = await service._get_sale_with_items(sale.id)
     return SaleResponse.model_validate(sale)
 
 
@@ -389,7 +391,10 @@ async def confirm_sale(
     try:
         sale = await service.confirm_sale(sale_id=sale_id)
         await db.commit()
-        await db.refresh(sale)
+        # Re-fetch with items + spare_part eager-loaded so serializing the
+        # response never triggers a lazy load (which raises MissingGreenlet in
+        # async SQLAlchemy). db.refresh only reloads the sale's own columns.
+        sale = await service._get_sale_with_items(sale_id)
         return SaleResponse.model_validate(sale)
     except SaleNotFoundError as e:
         raise HTTPException(
@@ -493,7 +498,10 @@ async def return_sale(
                 db.add(audit)
 
         await db.commit()
-        await db.refresh(sale)
+        # Re-fetch with items + spare_part eager-loaded so serializing the
+        # response never triggers a lazy load (raises MissingGreenlet in async
+        # SQLAlchemy). db.refresh only reloads the sale's own columns.
+        sale = await service._get_sale_with_items(sale_id)
         return SaleResponse.model_validate(sale)
     except SaleNotFoundError as e:
         raise HTTPException(

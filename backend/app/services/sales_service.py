@@ -508,12 +508,17 @@ class SalesService:
     # -------------------------------------------------------------------------
 
     async def _get_sale_with_items(self, sale_id: uuid.UUID) -> Sale:
-        """Retrieve a sale with its items loaded, or raise SaleNotFoundError."""
+        """Retrieve a sale with its items (and each item's spare_part) loaded.
+
+        Eager-loads SaleItem.spare_part so callers can serialize the sale into
+        SaleResponse (which nests spare_part) without triggering a lazy load —
+        lazy I/O is not allowed in async SQLAlchemy and raises MissingGreenlet.
+        """
         from sqlalchemy.orm import selectinload
         stmt = (
             select(Sale)
             .filter_by(id=sale_id)
-            .options(selectinload(Sale.items))
+            .options(selectinload(Sale.items).selectinload(SaleItem.spare_part))
         )
         result = await self.db.execute(stmt)
         sale = result.scalar_one_or_none()
