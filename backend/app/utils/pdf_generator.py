@@ -37,6 +37,9 @@ class CompanyDetails:
     email: str = "info@autospareparts.com"
     tax_id: str = "TIN-12345678"
     logo_base64: Optional[str] = None
+    # Custom footer text shown on invoices (from Business Settings). Falls back
+    # to a default message when empty.
+    invoice_footer: Optional[str] = None
 
     # Multiple phone numbers — list of {"label": str, "number": str}
     phones: list[dict] = field(default_factory=list)
@@ -184,6 +187,9 @@ def _render_a4_html(data: InvoiceData) -> str:
     served_by_section = ""
     if data.salesperson_name:
         served_by_section = f"<p><strong>Served by:</strong> {data.salesperson_name}</p>"
+
+    # Invoice footer text — use the business's configured footer, else default.
+    footer_text = (data.company.invoice_footer or "").strip() or "Thank you for your business!"
 
     # Company logo section
     logo_section = ""
@@ -482,7 +488,7 @@ def _render_a4_html(data: InvoiceData) -> str:
         <div class="payment-terms">
             <h4>Payment Terms</h4>
             <p>{data.payment_terms}</p>
-            <p style="margin-top: 10px; font-size: 8pt;">Thank you for your business!</p>
+            <p style="margin-top: 10px; font-size: 8pt;">{footer_text}</p>
             {bank_accounts_html}
         </div>
         <div class="codes">
@@ -539,6 +545,9 @@ def _render_thermal_html(data: InvoiceData) -> str:
         if data.salesperson_name
         else ""
     )
+
+    # Invoice footer text — configured footer, else default.
+    footer_text = (data.company.invoice_footer or "").strip() or "Thank you for your business!"
 
     # Thermal bank accounts (compact)
     thermal_bank_html = ""
@@ -705,7 +714,7 @@ def _render_thermal_html(data: InvoiceData) -> str:
         {thermal_bank_html}
         {qr_section}
         {barcode_section}
-        <p>Thank you for your business!</p>
+        <p>{footer_text}</p>
     </div>
 </body>
 </html>"""

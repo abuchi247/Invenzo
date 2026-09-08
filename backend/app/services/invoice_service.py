@@ -130,6 +130,7 @@ class InvoiceService:
             email=bs.email or "",
             tax_id=bs.tax_id or "",
             logo_base64=bs.logo_base64,
+            invoice_footer=bs.invoice_footer,
             phones=phones,
             bank_accounts=bank_accounts,
         )

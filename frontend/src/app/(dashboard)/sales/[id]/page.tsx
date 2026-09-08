@@ -198,6 +198,32 @@ export default function SaleDetailPage() {
     }
   };
 
+  // View the receipt inline (new tab) without downloading. Open the tab
+  // synchronously on click FIRST so it isn't treated as a blocked popup, then
+  // point it at the blob URL once the authenticated fetch resolves.
+  const handleViewPdf = async () => {
+    if (!invoiceId) return;
+    const viewer = window.open('', '_blank');
+    try {
+      const { default: api } = await import('@/lib/api');
+      const response = await api.get(`/invoices/${invoiceId}/pdf`, {
+        responseType: 'blob',
+      });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      if (viewer) {
+        viewer.location.href = url;
+      } else {
+        // Popup was blocked anyway — fall back to navigating the current tab.
+        window.location.href = url;
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      if (viewer) viewer.close();
+      setError('Failed to open invoice PDF');
+    }
+  };
+
   const handleConfirm = async () => {
     setIsConfirming(true);
     setError(null);
@@ -669,8 +695,11 @@ export default function SaleDetailPage() {
               />
             </div>
             {invoiceId ? (
-              <div className="flex gap-2">
-                <Button onClick={handleDownloadPdf}>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={handleViewPdf}>
+                  View
+                </Button>
+                <Button variant="secondary" onClick={handleDownloadPdf}>
                   Download PDF
                 </Button>
                 <Button
