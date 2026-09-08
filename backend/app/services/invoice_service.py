@@ -208,6 +208,9 @@ class InvoiceService:
         # 8. Determine payment terms
         payment_terms = self._get_payment_terms(sale.payment_type.value)
 
+        # 8b. Resolve who issued the sale (for the "Served by" line)
+        salesperson_name = await self._get_salesperson_name(sale.created_by)
+
         # 9. Calculate amount paid and balance due
         amount_paid = Decimal("0.00")
         if sale.payment_type.value == "CASH":
@@ -234,6 +237,7 @@ class InvoiceService:
             payment_terms=payment_terms,
             qr_code_base64=qr_code_base64,
             barcode_svg=barcode_svg_base64,
+            salesperson_name=salesperson_name,
         )
 
         # 11. Generate PDF
@@ -344,6 +348,27 @@ class InvoiceService:
             address=customer.address,
             tax_id=customer.tax_id,
         )
+
+    async def _get_salesperson_name(
+        self,
+        created_by: Optional[str],
+    ) -> Optional[str]:
+        """Resolve the sale's created_by UUID to a username for the invoice.
+
+        Returns None if there's no creator recorded or the id can't be resolved,
+        so the template simply omits the "Served by" line.
+        """
+        if not created_by:
+            return None
+        from app.models.user import User
+        try:
+            creator_uuid = uuid.UUID(str(created_by))
+        except (ValueError, TypeError):
+            return None
+        result = await self.db.execute(
+            select(User.username).filter_by(id=creator_uuid)
+        )
+        return result.scalar_one_or_none()
 
     async def _build_line_items(
         self,

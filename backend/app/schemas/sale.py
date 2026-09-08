@@ -209,7 +209,10 @@ class SaleResponse(BaseModel):
     )
     created_at: Optional[datetime] = Field(default=None, description="Created timestamp")
     updated_at: Optional[datetime] = Field(default=None, description="Updated timestamp")
-    created_by: Optional[str] = Field(default=None, description="Created by user")
+    created_by: Optional[str] = Field(default=None, description="Created by user (UUID)")
+    created_by_username: Optional[str] = Field(
+        default=None, description="Username of the user who issued the sale"
+    )
     updated_by: Optional[str] = Field(default=None, description="Updated by user")
 
     model_config = {"from_attributes": True}

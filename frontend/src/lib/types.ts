@@ -356,6 +356,7 @@ export interface Sale {
   items?: SaleItem[];
   customer?: Customer;
   customer_name?: string;
+  created_by_username?: string;
 }
 
 export interface SaleItem {

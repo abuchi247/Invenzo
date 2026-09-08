@@ -251,6 +251,19 @@ async def get_sale(
         cust_name = cust_result.scalar_one_or_none()
         resp.customer_name = cust_name
 
+    # Resolve who issued the sale (created_by is a UUID string) to a username
+    if sale.created_by:
+        from app.models.user import User
+        try:
+            creator_uuid = UUID(str(sale.created_by))
+        except (ValueError, TypeError):
+            creator_uuid = None
+        if creator_uuid is not None:
+            uname_result = await db.execute(
+                select(User.username).filter_by(id=creator_uuid)
+            )
+            resp.created_by_username = uname_result.scalar_one_or_none()
+
     return resp
 
 

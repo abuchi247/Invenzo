@@ -98,6 +98,7 @@ class InvoiceData:
     payment_terms: str = "Due on receipt"
     qr_code_base64: Optional[str] = None
     barcode_svg: Optional[str] = None
+    salesperson_name: Optional[str] = None
 
 
 def generate_qr_code_base64(data: str) -> str:
@@ -178,6 +179,11 @@ def _render_a4_html(data: InvoiceData) -> str:
     barcode_section = ""
     if data.barcode_svg:
         barcode_section = f'<img src="data:image/svg+xml;base64,{data.barcode_svg}" class="barcode" alt="Invoice Barcode" />'
+
+    # "Served by" line — only shown when we could resolve the issuing user
+    served_by_section = ""
+    if data.salesperson_name:
+        served_by_section = f"<p><strong>Served by:</strong> {data.salesperson_name}</p>"
 
     # Company logo section
     logo_section = ""
@@ -414,6 +420,7 @@ def _render_a4_html(data: InvoiceData) -> str:
             <p><strong>Invoice #:</strong> {data.invoice_number}</p>
             <p><strong>Date:</strong> {data.invoice_date.strftime("%Y-%m-%d")}</p>
             <p><strong>Payment:</strong> {data.payment_type}</p>
+            {served_by_section}
             <p><span class="status-badge status-{data.status}">{data.status}</span></p>
         </div>
     </div>
@@ -525,6 +532,13 @@ def _render_thermal_html(data: InvoiceData) -> str:
         if not logo_src.startswith("data:"):
             logo_src = f"data:image/png;base64,{logo_src}"
         thermal_logo_section = f'<img src="{logo_src}" style="width:50px;height:50px;margin:0 auto 5px;display:block;object-fit:contain;" alt="Logo" />'
+
+    # "Served by" line (compact) — only when the issuing user is known
+    thermal_served_by = (
+        f"<div>Served by: {data.salesperson_name}</div>"
+        if data.salesperson_name
+        else ""
+    )
 
     # Thermal bank accounts (compact)
     thermal_bank_html = ""
@@ -649,6 +663,7 @@ def _render_thermal_html(data: InvoiceData) -> str:
         <div>Date: {data.invoice_date.strftime("%Y-%m-%d %H:%M")}</div>
         <div>Customer: {data.customer.name or "Walk-in"}</div>
         <div>Payment: {data.payment_type}</div>
+        {thermal_served_by}
         <div class="status">Status: {data.status}</div>
     </div>
 

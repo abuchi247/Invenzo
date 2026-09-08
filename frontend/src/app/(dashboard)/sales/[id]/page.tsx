@@ -413,6 +413,12 @@ export default function SaleDetailPage() {
               {sale.invoice_number || 'Not assigned (draft)'}
             </p>
           </div>
+          <div>
+            <p className="text-sm font-medium text-gray-500">Issued by</p>
+            <p className="mt-1 text-sm text-gray-900">
+              {sale.created_by_username ?? '—'}
+            </p>
+          </div>
         </div>
       </div>
 
