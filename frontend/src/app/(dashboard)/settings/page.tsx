@@ -154,6 +154,7 @@ export default function SettingsPage() {
   const handleEditUser = (userProfile: UserProfile) => {
     setEditingUser(userProfile);
     setEditData({
+      username: userProfile.username,
       email: userProfile.email,
       // Normalize the API's capitalized role (e.g. "Admin") to the lowercase
       // UserRole the Select options are keyed by, so the dropdown preselects
@@ -445,6 +446,14 @@ export default function SettingsPage() {
             </Alert>
           )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Input
+              label="Username"
+              value={editData.username || ''}
+              onChange={(e) =>
+                setEditData({ ...editData, username: e.target.value })
+              }
+              helperText="Used to log in. Not case-sensitive; must be unique."
+            />
             <Input
               label="Email"
               type="email"

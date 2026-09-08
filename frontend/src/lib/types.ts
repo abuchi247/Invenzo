@@ -100,6 +100,7 @@ export interface UserCreate {
 }
 
 export interface UserUpdate {
+  username?: string;
   email?: string;
   role?: UserRole;
   is_active?: boolean;
