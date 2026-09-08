@@ -42,21 +42,42 @@ then shows how to add each new customer in ~15 minutes with
 >    (shown once). Server is `smtp-relay.brevo.com`, port `587`.
 > 4. You'll paste the Login as `SMTP_USERNAME` and the key as `SMTP_PASSWORD`
 >    into each customer's `.env` (Step 6b). The host/port/TLS are pre-filled.
+>
+> **Important — the From address must be verified in Brevo.** Brevo rejects any
+> email whose `From:` (`SMTP_FROM_EMAIL`) is a sender/domain you haven't
+> verified. Fastest path: verify a sender you control (e.g. your Gmail) and set
+> `SMTP_FROM_EMAIL` to it. For a branded `no-reply@invenzo.app`, verify the
+> `invenzo.app` **domain** in Brevo (add the DKIM/DMARC DNS records it gives you
+> at Cloudflare) first. Until then, password-reset emails will fail to send —
+> though admin-driven password reset in Settings works regardless.
 
 ---
 
 ## Step 1 — Create the VPS (Hetzner)
 
 1. Sign in at https://www.hetzner.com/cloud → **New Project** → **Add Server**.
-2. **Location:** Ashburn, VA (US East) — cheapest region with good general
-   connectivity. (Hetzner has no Africa region; if your users are in West
-   Africa and latency feels slow later, you can move to a Johannesburg-region
-   VPS with the same steps + a DB restore.)
-3. **Image:** Ubuntu 24.04.
-4. **Type:** Shared vCPU → **CX22** (2 vCPU / 4 GB / 40 GB). 4 GB is the
-   comfortable minimum for the whole stack; don't go below it.
-5. **SSH key:** add your public key.
+2. **Location:** choose the region closest to your users. Hetzner has no Africa
+   datacenter, so for West-African (e.g. Nigerian) users an **EU region such as
+   Helsinki** is the closest of the available sites (~100–150 ms to Lagos vs
+   ~200 ms+ from US East). Pick **Ashburn, VA (US East)** instead if your users
+   are in the US. Location does not change the price — the server type does.
+3. **Image:** Ubuntu 24.04 LTS. (Avoid non-LTS/newer images — this runbook is
+   tested against 24.04.)
+4. **Type:** on the **Shared vCPU** tab, the **Cost-Optimized / CX** line is the
+   cheapest. Pick **CX23** (2 vCPU / 4 GB / 40 GB, ~€6.49/mo). 4 GB is the
+   comfortable minimum for the whole stack; don't go below it. (Note: the
+   `CPX`/"Regular Performance" line is a pricier tier — `CX` is the one you want.)
+5. **SSH key:** add your public key (`cat ~/.ssh/id_ed25519.pub`).
 6. Create the server and note its **public IPv4 address**.
+
+> **Tip — SSH config:** add an entry to `~/.ssh/config` so you can just
+> `ssh invenzo`:
+> ```
+> Host invenzo
+>     HostName <your server IPv4>
+>     User root
+>     IdentityFile ~/.ssh/id_ed25519
+> ```
 
 ---
 
@@ -244,7 +265,7 @@ Each instance:
   volumes, and networks never collide;
 - publishes on unique loopback ports (derived from the slug) that Caddy proxies.
 
-**Capacity guidance:** a 4 GB CX22 comfortably runs 2–3 small instances. Watch
+**Capacity guidance:** a 4 GB CX23 comfortably runs 2–3 small instances. Watch
 `docker stats` and free memory; when the box gets tight, either resize the
 Hetzner server up a tier or move a customer to its own VPS (provision on the
 new box, restore that customer's DB dump — see OPERATIONS_RUNBOOK.md §4).
@@ -284,6 +305,14 @@ Each instance also runs a scheduled daily backup into its own `backup-data`
 volume. Copy those dumps off the server periodically (object storage). See
 [OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md) §4 for restore and off-site
 storage.
+
+> **Encrypted backups:** `provision_customer.sh` generates a per-customer
+> `BACKUP_ENCRYPTION_KEY` in each `.env`, so dumps are encrypted at rest
+> (AES-256-CBC) as `.dump.enc` files. `restore.sh` auto-decrypts them using
+> the same key. **Keep each customer's `.env` (and that key) backed up
+> somewhere safe — without the key its encrypted backups cannot be restored.**
+> Instances provisioned before this feature won't have the key; add
+> `BACKUP_ENCRYPTION_KEY=<random>` to their `.env` and re-bring-up to enable it.
 
 **Logs / status for one customer:**
 
