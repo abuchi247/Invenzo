@@ -172,6 +172,7 @@ export interface SparePartCreate {
 }
 
 export interface SparePartUpdate {
+  part_number?: string;
   name?: string;
   description?: string;
   brand?: string;

@@ -215,6 +215,7 @@ export default function InventoryDetailPage() {
   const handleEdit = () => {
     if (!part) return;
     setEditData({
+      part_number: part.part_number,
       name: part.name,
       description: part.description,
       brand: part.brand,
@@ -819,6 +820,14 @@ export default function InventoryDetailPage() {
             </Alert>
           )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Input
+              label="Part Number"
+              value={editData.part_number || ''}
+              onChange={(e) => setEditData({ ...editData, part_number: e.target.value })}
+              required
+              placeholder="e.g. BRK-00012"
+              helperText="Must be unique. Changing it updates the part's identifier everywhere it appears."
+            />
             <Input
               label="Name"
               value={editData.name || ''}
