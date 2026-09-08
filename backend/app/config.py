@@ -67,8 +67,14 @@ class Settings(BaseSettings):
     # a DML-only application role. Falls back to DATABASE_URL when not set.
     migration_database_url: str | None = None
     database_echo: bool = False
-    database_pool_size: int = 20
-    database_max_overflow: int = 10
+    # Pool sizing is per worker process. Each uvicorn worker AND the ARQ worker
+    # container open their own pool, so the total open connections are
+    # (WEB_CONCURRENCY + 1) * (pool_size + max_overflow). Kept small so several
+    # customer stacks on one small VPS stay well under Postgres max_connections
+    # (default 100). Async connections are held only briefly, so a small pool is
+    # ample; raise via env only with headroom to spare.
+    database_pool_size: int = 5
+    database_max_overflow: int = 5
     database_pool_timeout: int = 30
     # Migrations are normally run as the deployment command before Uvicorn.
     # Enable this for environments that deliberately use controlled startup
