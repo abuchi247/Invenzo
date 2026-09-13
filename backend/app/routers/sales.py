@@ -73,7 +73,7 @@ async def list_sales(
     ),
     search: Optional[str] = Query(
         default=None,
-        description="Search by invoice number (partial, case-insensitive)",
+        description="Search by invoice number or customer name (partial, case-insensitive)",
     ),
     date_from: Optional[str] = Query(
         default=None,
@@ -103,14 +103,21 @@ async def list_sales(
     from datetime import datetime, timezone, timedelta
     from app.models.sale import SaleItem
     from app.models.spare_part import SparePart
+    from app.models.customer import Customer
 
     def _apply_filters(stmt):
         """Apply the shared WHERE clauses to a count or data statement."""
         stmt = stmt.filter(Sale.deleted_at.is_(None))
         if status_filter:
             stmt = stmt.filter(Sale.status == status_filter)
-        if search:
-            stmt = stmt.filter(Sale.invoice_number.ilike(f"%{search.strip()}%"))
+        if search and search.strip():
+            like = f"%{search.strip()}%"
+            matching_customer = (
+                select(Customer.id)
+                .where(Customer.id == Sale.customer_id, Customer.name.ilike(like))
+                .exists()
+            )
+            stmt = stmt.filter(or_(Sale.invoice_number.ilike(like), matching_customer))
         # Date range on created_at. date_to is inclusive of the whole day.
         if date_from:
             try:

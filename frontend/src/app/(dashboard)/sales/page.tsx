@@ -195,11 +195,11 @@ export default function SalesPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
           <div className="flex-1">
             <Input
-              label="Invoice #"
-              placeholder="Search by invoice number..."
+              label="Invoice # or customer"
+              placeholder="Invoice number or customer name..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              aria-label="Search sales by invoice number"
+              aria-label="Search sales by invoice number or customer name"
             />
           </div>
           <div className="flex-1">

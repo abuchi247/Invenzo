@@ -19,7 +19,7 @@ Invenzo digitizes and streamlines operations for product-based businesses, repla
 ## Key Capabilities
 
 - **Inventory Management** — Multi-location stock tracking with FIFO cost layers and barcode support
-- **Sales Management** — Cash and credit sales with pessimistic locking, automatic COGS calculation, partial payments at checkout, and PDF invoice generation. The sales list filters by status, date range, and product sold (part number or name), and shows who issued each sale.
+- **Sales Management** — Cash and credit sales with pessimistic locking, automatic COGS calculation, partial payments at checkout, and PDF invoice generation. The sales list searches by invoice number or customer name and filters by status, date range, and product sold (part number or name), and shows who issued each sale.
 - **Customer Management** — Credit ledger with limit enforcement, aging analysis, payment tracking linked to specific sales, and partial payment support
 - **Supplier Management** — Purchase orders with full lifecycle (draft → approved → received), goods receipt notes, and supplier balance tracking
 - **Transfer Management** — Multi-location transfers with in-transit state and cost layer propagation
