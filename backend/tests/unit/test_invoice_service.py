@@ -131,6 +131,7 @@ def _make_mock_spare_part(part_number="SP-001", name="Brake Pad Set"):
     mock_part = MagicMock()
     mock_part.id = uuid.uuid4()
     mock_part.part_number = part_number
+    mock_part.brand = "Bosch"
     mock_part.name = name
     return mock_part
 
@@ -638,3 +639,14 @@ class TestInvoiceServiceGetBySale:
 
         result = await invoice_service.get_invoice_by_sale(sale_id, format="A4")
         assert result is None
+
+
+@pytest.mark.parametrize("format", ["A4", "THERMAL"])
+def test_receipt_brand_and_product_identity(sample_invoice_data, format):
+    sample_invoice_data.line_items[0].brand = "Bosch & <Original>"
+    html = render_invoice_html(sample_invoice_data, format=format)
+    assert "Brand: Bosch &amp; &lt;Original&gt;" in html
+    assert html.count("Brand:") == 1
+    assert "Powered by <strong>Invenzo</strong>" in html
+    assert 'alt="Invenzo logo"' in html
+    assert sample_invoice_data.company.name in html

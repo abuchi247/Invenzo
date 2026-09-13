@@ -398,6 +398,7 @@ class InvoiceService:
                 InvoiceLineItem(
                     part_number=part_number,
                     description=description,
+                    brand=part.brand if part else None,
                     quantity=item.quantity,
                     unit_price=item.unit_price,
                     discount_amount=item.discount_amount,

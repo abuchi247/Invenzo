@@ -15,6 +15,8 @@ Satisfies Requirements:
 import base64
 import io
 import logging
+from html import escape
+from pathlib import Path
 from dataclasses import dataclass, field
 from decimal import Decimal
 from datetime import datetime
@@ -79,6 +81,7 @@ class InvoiceLineItem:
     unit_price: Decimal
     discount_amount: Decimal = Decimal("0.00")
     line_total: Decimal = Decimal("0.00")
+    brand: Optional[str] = None
 
 
 @dataclass
@@ -151,6 +154,23 @@ def generate_barcode_base64(barcode_value: str) -> str:
     return base64.b64encode(svg_bytes).decode("utf-8")
 
 
+def _render_brand(brand: Optional[str]) -> str:
+    if not brand or not brand.strip():
+        return ""
+    return f'<div style="font-size:8pt; overflow-wrap:anywhere;">Brand: {escape(brand.strip())}</div>'
+
+
+def _render_invenzo_branding() -> str:
+    logo = Path(__file__).resolve().parent.parent / "assets" / "invenzo-logo.svg"
+    encoded = base64.b64encode(logo.read_bytes()).decode("ascii")
+    return (
+        '<div style="text-align:center;margin-top:12px;font-size:8pt;break-inside:avoid;">'
+        f'<img src="data:image/svg+xml;base64,{encoded}" alt="Invenzo logo" '
+        'style="width:20px;height:20px;vertical-align:middle;margin-right:5px;" />'
+        'Powered by <strong>Invenzo</strong></div>'
+    )
+
+
 def _render_a4_html(data: InvoiceData) -> str:
     """Render invoice HTML template for A4 format.
 
@@ -166,7 +186,7 @@ def _render_a4_html(data: InvoiceData) -> str:
         <tr>
             <td>{i}</td>
             <td>{item.part_number}</td>
-            <td>{item.description}</td>
+            <td>{escape(item.description)}{_render_brand(item.brand)}</td>
             <td class="number">{item.quantity}</td>
             <td class="number">{item.unit_price:,.2f}</td>
             <td class="number">{item.discount_amount:,.2f}</td>
@@ -496,6 +516,7 @@ def _render_a4_html(data: InvoiceData) -> str:
             {barcode_section}
         </div>
     </div>
+    {_render_invenzo_branding()}
 </body>
 </html>"""
     return html
@@ -514,7 +535,8 @@ def _render_thermal_html(data: InvoiceData) -> str:
     for item in data.line_items:
         line_items_html += f"""
         <div class="item">
-            <div class="item-name">{item.description}</div>
+            <div class="item-name">{escape(item.description)}</div>
+            {_render_brand(item.brand)}
             <div class="item-details">
                 <span>{item.quantity} x {item.unit_price:,.2f}</span>
                 <span class="item-total">{item.line_total:,.2f}</span>
@@ -565,7 +587,7 @@ def _render_thermal_html(data: InvoiceData) -> str:
     <title>Receipt {data.invoice_number}</title>
     <style>
         @page {{
-            size: 80mm auto;
+            size: 80mm 297mm;
             margin: 3mm;
         }}
         body {{
@@ -716,6 +738,7 @@ def _render_thermal_html(data: InvoiceData) -> str:
         {barcode_section}
         <p>{footer_text}</p>
     </div>
+    {_render_invenzo_branding()}
 </body>
 </html>"""
     return html
