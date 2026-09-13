@@ -117,7 +117,13 @@ async def list_sales(
                 .where(Customer.id == Sale.customer_id, Customer.name.ilike(like))
                 .exists()
             )
-            stmt = stmt.filter(or_(Sale.invoice_number.ilike(like), matching_customer))
+            matches = [Sale.invoice_number.ilike(like), matching_customer]
+            # The UI labels sales without a customer as "Walk-in". Include that
+            # label in text search, accepting spaces and hyphens interchangeably.
+            normalized = search.strip().casefold().replace("-", "").replace(" ", "")
+            if normalized and normalized in "walkin":
+                matches.append(Sale.customer_id.is_(None))
+            stmt = stmt.filter(or_(*matches))
         # Date range on created_at. date_to is inclusive of the whole day.
         if date_from:
             try:
