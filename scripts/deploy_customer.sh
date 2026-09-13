@@ -81,7 +81,7 @@ PY
     echo "Waiting for application health..."
     local attempt healthy=false
     for attempt in {1..30}; do
-        if "${compose[@]}" exec -T backend curl -fsS --max-time 5 http://localhost:8000/health > "$record/health.json" \
+        if "${compose[@]}" exec -T backend curl -fs --max-time 5 http://localhost:8000/health > "$record/health.json" \
             && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get("status")=="healthy" and all(d.get("dependencies",{}).get(k)=="up" for k in ("database","redis")) else 1)' "$record/health.json"; then
             healthy=true
             break
@@ -92,12 +92,15 @@ PY
     # Compare the database revision set with the migration scripts in the new image.
     "${compose[@]}" exec -T backend python -c '
 import asyncio
-from alembic.config import Config
-from alembic.script import ScriptDirectory
+import subprocess
 from sqlalchemy import text
 from app.database import engine
 async def check():
-    expected = set(ScriptDirectory.from_config(Config("alembic.ini")).get_heads())
+    # Use the installed executable: /app/alembic shadows the library in python -c.
+    output = subprocess.check_output(["alembic", "heads"], text=True)
+    expected = {line.split()[0] for line in output.splitlines() if "(head)" in line}
+    if not expected:
+        raise SystemExit("Could not determine application migration heads")
     async with engine.connect() as db:
         actual = set((await db.execute(text("SELECT version_num FROM alembic_version"))).scalars())
     await engine.dispose()
