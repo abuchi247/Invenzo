@@ -72,6 +72,11 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
+      - name: Validate deployment script
+        run: |
+          bash -n scripts/deploy_customer.sh
+          python -m unittest discover -s scripts/tests -v
+
       - name: Install dependencies
         working-directory: backend
         run: pip install -r requirements.txt
