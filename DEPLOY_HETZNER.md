@@ -274,23 +274,22 @@ new box, restore that customer's DB dump — see OPERATIONS_RUNBOOK.md §4).
 
 ## Operating the instances
 
-**Update every customer to the latest code:**
+**Update an existing customer with the deployment script:**
 
 ```bash
 cd ~/Invenzo
-git pull
-for d in customers/*/; do
-  slug="$(basename "$d")"
-  echo "Updating $slug..."
-  docker compose --env-file "customers/$slug/.env" \
-    -f docker-compose.production.yml \
-    -f "customers/$slug/docker-compose.override.yml" \
-    up -d --build
-done
+./scripts/deploy_customer.sh skons
 ```
 
-Migrations run automatically on each backend start. If you changed
-`NEXT_PUBLIC_API_URL` for an instance, the `--build` rebuilds its frontend.
+Replace `skons` with the existing customer slug. Run each customer separately
+and verify the result before continuing to the next. The script takes and
+verifies a backup before fetching code, builds before restarting application
+services, and checks health and migration revisions afterward. PostgreSQL and
+Redis are not recreated by the update command.
+
+See **[Customer deployment guide](DEPLOY_CUSTOMER.md)** for first-time script
+installation, prerequisites, backup copies, and failure recovery. Do not use the
+provisioning script to update an existing customer.
 
 **On-demand backup before a risky change** (per customer):
 
@@ -298,7 +297,7 @@ Migrations run automatically on each backend start. If you changed
 docker compose --env-file customers/bro/.env \
   -f docker-compose.production.yml \
   -f customers/bro/docker-compose.override.yml \
-  run --rm backup-runner sh /backup.sh
+  exec backup-runner sh /backup.sh
 ```
 
 Each instance also runs a scheduled daily backup into its own `backup-data`

@@ -466,6 +466,54 @@ docker exec invenzo-backend python scripts/create_user.py \
 
 ## Deployment
 
+### Deploy updates to an existing customer (recommended)
+
+Full instructions, first-use setup, backup export, and troubleshooting: **[Customer deployment guide](DEPLOY_CUSTOMER.md)**.
+
+On the production server, from the repository checkout:
+
+```bash
+./scripts/deploy_customer.sh skons
+# For another domain:
+./scripts/deploy_customer.sh skons example.com
+```
+
+Use the existing customer slug. This Linux server script requires Bash, Git,
+Docker Compose v2, Python 3, curl, and flock (util-linux). It requires a clean
+`main` checkout, the existing `customers/<slug>/` configuration with Compose
+project name `invenzo-<slug>`, and running PostgreSQL, Redis, and backup-runner
+services. It refuses to provision a new database or change the project namespace.
+
+The script backs up the database, verifies its checksum, exports and verifies a
+host copy, records the previous commit, fast-forwards to `origin/main`, builds
+images, and restarts only backend, worker, and frontend. It then checks backend
+health, migration revisions, running services, and public health/login endpoints.
+Expect a brief interruption during restart. Backups and commit records are saved
+under `customers/<slug>/deployments/` (gitignored, restricted permissions).
+Copy the backup and checksum off-server and retain the existing encryption key;
+a checksum verifies file integrity, not restorability. Periodically perform the
+restore drill in OPERATIONS_RUNBOOK.md.
+
+If a step fails, stop and inspect the error. A build failure leaves the running
+application untouched, although Git may already have advanced. A failure after
+restart may leave the new application running or partially started. The script
+does not automatically roll back code, downgrade migrations, restore data, or
+delete volumes. Use the recorded previous commit and operations runbook to plan
+recovery; migrations from other pending commits must be considered first.
+
+For the first use, obtain this script by following the manual backup-first
+update procedure above. Subsequent deployments fetch updates themselves. After
+a successful deployment, check existing sales, customer/Walk-in search, and a
+regenerated invoice in the browser.
+
+Script regression checks (simulated commands; no production access):
+
+```bash
+bash -n scripts/deploy_customer.sh
+python3 -m unittest discover -s scripts/tests -v
+```
+
+
 Invenzo deploys as a self-contained Docker Compose stack (backend API, ARQ worker, frontend, PostgreSQL, Redis) behind a Caddy reverse proxy that terminates HTTPS automatically.
 
 ### How it's hosted
@@ -605,49 +653,3 @@ E2E_USERNAME=testuser E2E_PASSWORD='TestPass1!' npm run e2e
 ```
 
 The API must be available at `E2E_API_URL` (default `http://127.0.0.1:8000/api/v1`) and the frontend at `PLAYWRIGHT_BASE_URL` (default `http://127.0.0.1:3000`). Set `PLAYWRIGHT_SKIP_WEBSERVER=true` when an already-running frontend should be reused. CI supplies `E2E_USERNAME` and `E2E_PASSWORD` through encrypted repository secrets and starts disposable PostgreSQL, Redis, and backend services before running the suite. The CI workflow is `.github/workflows/frontend-e2e.yml`.
-
-
-### Deploy updates to an existing customer
-
-On the production server, from the repository checkout:
-
-```bash
-./scripts/deploy_customer.sh skons
-# For another domain:
-./scripts/deploy_customer.sh skons example.com
-```
-
-Use the existing customer slug. This Linux server script requires Bash, Git,
-Docker Compose v2, Python 3, curl, and flock (util-linux). It requires a clean
-`main` checkout, the existing `customers/<slug>/` configuration with Compose
-project name `invenzo-<slug>`, and running PostgreSQL, Redis, and backup-runner
-services. It refuses to provision a new database or change the project namespace.
-
-The script backs up the database, verifies its checksum, exports and verifies a
-host copy, records the previous commit, fast-forwards to `origin/main`, builds
-images, and restarts only backend, worker, and frontend. It then checks backend
-health, migration revisions, running services, and public health/login endpoints.
-Expect a brief interruption during restart. Backups and commit records are saved
-under `customers/<slug>/deployments/` (gitignored, restricted permissions).
-Copy the backup and checksum off-server and retain the existing encryption key;
-a checksum verifies file integrity, not restorability. Periodically perform the
-restore drill in OPERATIONS_RUNBOOK.md.
-
-If a step fails, stop and inspect the error. A build failure leaves the running
-application untouched, although Git may already have advanced. A failure after
-restart may leave the new application running or partially started. The script
-does not automatically roll back code, downgrade migrations, restore data, or
-delete volumes. Use the recorded previous commit and operations runbook to plan
-recovery; migrations from other pending commits must be considered first.
-
-For the first use, obtain this script by following the manual backup-first
-update procedure above. Subsequent deployments fetch updates themselves. After
-a successful deployment, check existing sales, customer/Walk-in search, and a
-regenerated invoice in the browser.
-
-Script regression checks (simulated commands; no production access):
-
-```bash
-bash -n scripts/deploy_customer.sh
-python3 -m unittest discover -s scripts/tests -v
-```

@@ -281,6 +281,17 @@ Do not delete the Railway backup dump — keep it archived off-site for a while.
 
 ### Deploying updates
 
+For customer instances configured under `customers/<slug>/` with project name
+`invenzo-<slug>`, use `./scripts/deploy_customer.sh <slug>` as described in the
+[Customer deployment guide](DEPLOY_CUSTOMER.md). It coordinates backup,
+build, restart, and verification.
+
+The manual commands below apply to this guide's legacy root `.env` deployment.
+The customer script deliberately refuses that layout; do not rename its Compose
+project to make the script run, because that could select a different database
+volume. Take and verify a backup using the operations runbook before updating.
+
+
 ```bash
 cd ~/Invenzo
 git pull
