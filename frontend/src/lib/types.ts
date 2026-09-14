@@ -362,9 +362,17 @@ export interface Sale {
 }
 
 export interface SaleItem {
+  source_type?: 'STOCK' | 'EXTERNAL';
+  external_description?: string;
+  external_part_number?: string;
+  supplier_id?: string;
+  supplier_unit_cost?: number;
+  supplier_amount_paid?: number;
+  external_returned_quantity?: number;
+  supplier_returned_quantity?: number;
   id: string;
   sale_id: string;
-  spare_part_id: string;
+  spare_part_id?: string | null;
   quantity: number;
   unit_price: number;
   discount_amount: number;
@@ -383,7 +391,14 @@ export interface SaleCreate {
 }
 
 export interface SaleItemCreate {
-  spare_part_id: string;
+  source_type?: 'STOCK' | 'EXTERNAL';
+  external_description?: string;
+  external_part_number?: string;
+  supplier_id?: string;
+  supplier_unit_cost?: number;
+  supplier_amount_paid?: number;
+
+  spare_part_id?: string | null;
   quantity: number;
   unit_price: number;
   discount_amount?: number;

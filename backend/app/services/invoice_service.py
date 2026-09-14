@@ -391,8 +391,8 @@ class InvoiceService:
 
         for item in sale_items:
             part = parts_map.get(item.spare_part_id)
-            part_number = part.part_number if part else "N/A"
-            description = part.name if part else "Unknown Part"
+            part_number = (item.external_part_number or "N/A") if item.source_type == "EXTERNAL" else (part.part_number if part else "N/A")
+            description = item.external_description if item.source_type == "EXTERNAL" else (part.name if part else "Unknown Part")
 
             line_items.append(
                 InvoiceLineItem(

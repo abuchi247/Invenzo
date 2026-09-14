@@ -166,7 +166,8 @@ class SalesService:
 
                 sale_item = SaleItem(
                     sale_id=sale.id,
-                    spare_part_id=item_data["spare_part_id"],
+                    spare_part_id=item_data.get("spare_part_id"),
+                    **{key: item_data[key] for key in ("source_type", "external_description", "external_part_number", "supplier_id", "supplier_unit_cost", "supplier_amount_paid") if key in item_data},
                     quantity=quantity,
                     unit_price=unit_price,
                     discount_amount=discount_amount,
@@ -220,6 +221,25 @@ class SalesService:
         subtotal = Decimal("0.00")
 
         for item in sale.items:
+            if item.source_type == "EXTERNAL":
+                from app.models.supplier_ledger import SupplierLedger
+                from app.services.supplier_service import SupplierService, calculate_payment_due_date
+                supplier = await SupplierService(self.db).get_supplier(item.supplier_id)
+                if supplier.account_status != "active":
+                    raise ValueError("External items require an active supplier")
+                item.cost_of_goods_sold = (item.quantity * item.supplier_unit_cost).quantize(Decimal("0.01"))
+                item.line_total = item.quantity * item.unit_price - item.discount_amount
+                self.db.add(SupplierLedger(supplier_id=item.supplier_id, transaction_type="PURCHASE",
+                    amount=item.cost_of_goods_sold, reference_type="external_sale", reference_id=item.id,
+                    notes=f"External sale {sale.id}: {item.external_description}", created_by=self.user_id,
+                    payment_due_date=calculate_payment_due_date(supplier.payment_terms or "COD")))
+                if item.supplier_amount_paid:
+                    self.db.add(SupplierLedger(supplier_id=item.supplier_id, transaction_type="PAYMENT",
+                        amount=-item.supplier_amount_paid, reference_type="external_sale", reference_id=item.id,
+                        notes="Supplier payment at sale confirmation", created_by=self.user_id))
+                subtotal += item.line_total
+                total_discount += item.discount_amount
+                continue
             # Acquire pessimistic lock on the cache row
             stmt = (
                 select(StockStatusCache)
@@ -412,11 +432,16 @@ class SalesService:
                 detail=str(e),
             )
 
+        external_previously_returned = sum((i.external_returned_quantity or Decimal("0")) for i in sale.items if i.source_type == "EXTERNAL")
+
         # Process each return item
         # Resolve the return location: use provided return_location_id or default to sale's location
         effective_return_location = return_location_id or sale.location_id
 
         for sale_item, return_quantity in items_to_return:
+            if sale_item.source_type == "EXTERNAL":
+                sale_item.external_returned_quantity = (sale_item.external_returned_quantity or Decimal("0")) + return_quantity
+                continue
             # Determine the unit cost for the new cost layer.
             # Use the COGS-derived unit cost if available (COGS / quantity gives
             # the actual average cost consumed during the sale). If not available,
@@ -455,7 +480,7 @@ class SalesService:
 
         # Update sale status — only mark as RETURNED if ALL items are fully returned
         total_sold = sum(Decimal(str(item.quantity)) for item in sale.items)
-        total_previously_returned = sum(previously_returned.values())
+        total_previously_returned = sum(previously_returned.values()) + external_previously_returned
         total_returned_now = sum(qty for _, qty in items_to_return)
         total_all_returned = total_previously_returned + total_returned_now
         if total_all_returned >= total_sold:
@@ -469,7 +494,7 @@ class SalesService:
             # Calculate total refund value for the items being returned now
             refund_amount = Decimal("0.00")
             for sale_item, return_quantity in items_to_return:
-                refund_amount += return_quantity * sale_item.unit_price
+                refund_amount += return_quantity * (sale_item.line_total / sale_item.quantity)
 
             if refund_amount > Decimal("0.00"):
                 # Build reason summary from return items
@@ -518,6 +543,8 @@ class SalesService:
         stmt = (
             select(Sale)
             .filter_by(id=sale_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
             .options(selectinload(Sale.items).selectinload(SaleItem.spare_part))
         )
         result = await self.db.execute(stmt)
@@ -539,6 +566,8 @@ class SalesService:
             from app.services.notification_service import NotificationService
 
             for item in sale.items:
+                if item.source_type == "EXTERNAL":
+                    continue
                 # Get current stock from cache (already updated by record_inventory_movement)
                 cache_stmt = (
                     select(StockStatusCache)
@@ -601,7 +630,7 @@ class SalesService:
             # Return all items in full (minus already returned)
             resolved = []
             for item in sale.items:
-                already_returned = previously_returned.get(item.spare_part_id, Decimal("0"))
+                already_returned = (item.external_returned_quantity or Decimal("0")) if item.source_type == "EXTERNAL" else previously_returned.get(item.spare_part_id, Decimal("0"))
                 remaining = item.quantity - already_returned
                 if remaining > 0:
                     resolved.append((item, remaining))
@@ -611,13 +640,19 @@ class SalesService:
         items_by_id = {item.id: item for item in sale.items}
         resolved = []
 
+        seen = set()
         for return_spec in return_items:
+            if return_spec["sale_item_id"] in seen or return_spec["sale_item_id"] not in items_by_id:
+                raise ValueError("Return items must be unique and belong to this sale")
+            seen.add(return_spec["sale_item_id"])
+            if Decimal(str(return_spec["quantity"])) <= 0:
+                raise ValueError("Return quantity must be positive")
             sale_item_id = return_spec["sale_item_id"]
             quantity = Decimal(str(return_spec["quantity"]))
 
             if sale_item_id in items_by_id:
                 sale_item = items_by_id[sale_item_id]
-                already_returned = previously_returned.get(sale_item.spare_part_id, Decimal("0"))
+                already_returned = (sale_item.external_returned_quantity or Decimal("0")) if sale_item.source_type == "EXTERNAL" else previously_returned.get(sale_item.spare_part_id, Decimal("0"))
                 max_returnable = sale_item.quantity - already_returned
 
                 if max_returnable <= 0:

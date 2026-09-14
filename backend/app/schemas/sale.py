@@ -8,10 +8,10 @@ Satisfies Requirements: 5.1, 5.3, 5.4
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # =============================================================================
@@ -25,8 +25,8 @@ class SaleItemCreate(BaseModel):
     Requirement 5.1: Line items with spare_part, quantity, and optional discount.
     """
 
-    spare_part_id: UUID = Field(
-        ...,
+    spare_part_id: Optional[UUID] = Field(
+        default=None,
         description="UUID of the spare part to sell",
     )
     quantity: Decimal = Field(
@@ -47,6 +47,27 @@ class SaleItemCreate(BaseModel):
         description="Discount amount for this line item (default 0)",
         examples=["0.00"],
     )
+
+    source_type: Literal["STOCK", "EXTERNAL"] = "STOCK"
+    external_description: Optional[str] = Field(default=None, max_length=255)
+    external_part_number: Optional[str] = Field(default=None, max_length=100)
+    supplier_id: Optional[UUID] = None
+    supplier_unit_cost: Optional[Decimal] = Field(default=None, gt=0, max_digits=12, decimal_places=2)
+    supplier_amount_paid: Decimal = Field(default=Decimal("0"), ge=0, max_digits=14, decimal_places=2)
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        if self.discount_amount > self.quantity * self.unit_price:
+            raise ValueError("Discount cannot exceed the line amount")
+        if self.source_type == "EXTERNAL":
+            self.external_description = (self.external_description or "").strip()
+            if not self.external_description or not self.supplier_id or self.supplier_unit_cost is None:
+                raise ValueError("External items require a description, supplier and supplier unit cost")
+            if self.supplier_amount_paid > self.quantity * self.supplier_unit_cost:
+                raise ValueError("Supplier payment cannot exceed the supplier cost")
+        elif not self.spare_part_id or self.supplier_id or self.supplier_unit_cost is not None or self.supplier_amount_paid or self.external_description or self.external_part_number:
+            raise ValueError("Stock items require a product and cannot include external sourcing fields")
+        return self
 
     @field_validator("quantity")
     @classmethod
@@ -170,7 +191,15 @@ class SaleItemResponse(BaseModel):
 
     id: UUID = Field(..., description="Sale item UUID")
     sale_id: UUID = Field(..., description="Parent sale UUID")
-    spare_part_id: UUID = Field(..., description="Spare part UUID")
+    spare_part_id: Optional[UUID] = None
+    source_type: str = "STOCK"
+    external_description: Optional[str] = None
+    external_part_number: Optional[str] = None
+    supplier_id: Optional[UUID] = None
+    supplier_unit_cost: Optional[Decimal] = None
+    supplier_amount_paid: Decimal = Decimal("0")
+    external_returned_quantity: Decimal = Decimal("0")
+    supplier_returned_quantity: Decimal = Decimal("0")
     quantity: Decimal = Field(..., description="Quantity sold")
     unit_price: Decimal = Field(..., description="Unit price at time of sale")
     discount_amount: Decimal = Field(..., description="Discount applied")
@@ -254,3 +283,7 @@ class SaleListResponse(BaseModel):
         default_factory=lambda: {"page": 1, "total": 0},
         description="Pagination metadata",
     )
+
+
+class ExternalSupplierReturnRequest(BaseModel):
+    quantity: Decimal = Field(gt=0, max_digits=12, decimal_places=2)

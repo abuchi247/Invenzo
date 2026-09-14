@@ -154,15 +154,15 @@ async def get_top_products(
     stmt = (
         select(
             SaleItem.spare_part_id,
-            SparePart.name.label("part_name"),
-            SparePart.part_number.label("part_number"),
+            func.coalesce(SaleItem.external_description, SparePart.name).label("part_name"),
+            func.coalesce(SaleItem.external_part_number, SparePart.part_number).label("part_number"),
             func.sum(SaleItem.quantity).label("total_quantity_sold"),
             func.sum(SaleItem.line_total).label("total_revenue"),
         )
         .join(Sale, SaleItem.sale_id == Sale.id)
-        .join(SparePart, SaleItem.spare_part_id == SparePart.id)
+        .outerjoin(SparePart, SaleItem.spare_part_id == SparePart.id)
         .where(and_(*conditions))
-        .group_by(SaleItem.spare_part_id, SparePart.name, SparePart.part_number)
+        .group_by(SaleItem.spare_part_id, SparePart.name, SparePart.part_number, SaleItem.external_description, SaleItem.external_part_number)
         .order_by(func.sum(SaleItem.quantity).desc())
         .limit(5)
     )
@@ -173,7 +173,7 @@ async def get_top_products(
         "period": period,
         "data": [
             {
-                "spare_part_id": str(row.spare_part_id),
+                "spare_part_id": str(row.spare_part_id) if row.spare_part_id else None,
                 "part_name": row.part_name,
                 "part_number": row.part_number,
                 "total_quantity_sold": float(row.total_quantity_sold),

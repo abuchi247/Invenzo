@@ -209,16 +209,25 @@ class SaleItem(BaseModel):
         comment="Parent sale transaction",
     )
 
-    spare_part_id: Mapped[uuid.UUID] = mapped_column(
+    spare_part_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("spare_parts.id"),
-        nullable=False,
+        nullable=True,
         comment="The spare part being sold",
     )
 
     # -------------------------------------------------------------------------
     # Quantity and Pricing
     # -------------------------------------------------------------------------
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False, default="STOCK", server_default="STOCK")
+    external_description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    external_part_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    supplier_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("suppliers.id"), nullable=True)
+    supplier_unit_cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
+    supplier_amount_paid: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("0"), server_default="0")
+    external_returned_quantity: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"), server_default="0")
+    supplier_returned_quantity: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"), server_default="0")
+
     quantity: Mapped[Decimal] = mapped_column(
         Numeric(precision=12, scale=2),
         nullable=False,

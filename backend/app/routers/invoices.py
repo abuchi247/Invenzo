@@ -8,6 +8,7 @@ Provides the following endpoints:
 Satisfies Requirements: 14.5
 """
 
+from html import escape
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -238,7 +239,7 @@ async def generate_credit_note(
     return_result = await db.execute(return_stmt)
     returned_map = {row.spare_part_id: abs(float(row.total_returned)) for row in return_result}
 
-    if not returned_map:
+    if not returned_map and not any(i.external_returned_quantity for i in sale.items):
         raise HTTPException(status_code=400, detail="This sale has no returns. Credit note can only be generated for returned sales.")
 
     # Get customer name
@@ -255,16 +256,16 @@ async def generate_credit_note(
     credit_items_html = ""
     total_refund = Decimal("0.00")
     for item in sale.items:
-        qty_returned = returned_map.get(item.spare_part_id, 0)
+        qty_returned = item.external_returned_quantity if item.source_type == "EXTERNAL" else returned_map.get(item.spare_part_id, 0)
         if qty_returned > 0:
-            refund_amount = Decimal(str(qty_returned)) * item.unit_price
+            refund_amount = Decimal(str(qty_returned)) * (item.line_total / item.quantity)
             total_refund += refund_amount
-            part_name = item.spare_part.name if item.spare_part else "Unknown"
-            part_number = item.spare_part.part_number if item.spare_part else ""
+            part_name = item.external_description or (item.spare_part.name if item.spare_part else "Unknown")
+            part_number = item.external_part_number or (item.spare_part.part_number if item.spare_part else "")
             credit_items_html += f"""
             <tr>
-                <td>{part_number}</td>
-                <td>{part_name}</td>
+                <td>{escape(part_number)}</td>
+                <td>{escape(part_name)}</td>
                 <td class="number">{qty_returned:.0f}</td>
                 <td class="number">{item.unit_price:,.2f}</td>
                 <td class="number">{refund_amount:,.2f}</td>

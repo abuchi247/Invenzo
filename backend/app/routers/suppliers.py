@@ -23,6 +23,7 @@ from app.services.permission_service import require_permission
 from app.models.user import User, UserRole
 from app.schemas.auth import ErrorResponse
 from app.schemas.supplier import (
+    SupplierPaymentRequest,
     SupplierBalanceResponse,
     SupplierCreate,
     SupplierListResponse,
@@ -347,10 +348,9 @@ async def get_supplier_payment_schedule(
         select(SupplierLedger)
         .filter(
             SupplierLedger.supplier_id == supplier_id,
-            SupplierLedger.payment_due_date.isnot(None),
             SupplierLedger.amount > Decimal("0"),
         )
-        .order_by(SupplierLedger.payment_due_date.asc())
+        .order_by(SupplierLedger.created_at.asc(), SupplierLedger.id)
     )
     result = await db.execute(stmt)
     entries = result.scalars().all()
@@ -384,6 +384,8 @@ async def get_supplier_payment_schedule(
         if outstanding <= Decimal("0"):
             continue  # Fully paid
 
+        if entry.payment_due_date is None:
+            continue
         due_date = entry.payment_due_date
         if due_date.tzinfo is None:
             due_date = due_date.replace(tzinfo=timezone.utc)
@@ -414,3 +416,40 @@ async def get_supplier_payment_schedule(
         "total_overdue": sum(item["outstanding"] for item in overdue),
         "total_upcoming": sum(item["outstanding"] for item in upcoming),
     }
+
+
+@router.get("/{supplier_id}/ledger")
+async def get_supplier_ledger(
+    supplier_id: UUID, db: DbSession,
+    current_user: User = Depends(require_permission("purchasing")),
+    page: int = Query(default=1, ge=1),
+) -> dict:
+    from sqlalchemy import select
+    from app.models.supplier_ledger import SupplierLedger
+    entries = (await db.execute(select(SupplierLedger).where(SupplierLedger.supplier_id == supplier_id)
+        .order_by(SupplierLedger.created_at.desc(), SupplierLedger.id).offset((page - 1) * 50).limit(50))).scalars().all()
+    return {"data": [{"id": str(e.id), "created_at": e.created_at.isoformat(), "transaction_type": e.transaction_type,
+        "amount": str(e.amount), "reference_type": e.reference_type, "notes": e.notes} for e in entries]}
+
+
+@router.post("/{supplier_id}/payments")
+async def record_supplier_payment(
+    supplier_id: UUID, request: "SupplierPaymentRequest", db: DbSession,
+    current_user: User = Depends(require_permission("purchasing")),
+) -> dict:
+    from sqlalchemy import select
+    from app.models.supplier import Supplier
+    from app.models.supplier_ledger import SupplierLedger
+    supplier = await db.scalar(select(Supplier).where(Supplier.id == supplier_id, Supplier.deleted_at.is_(None)).with_for_update())
+    if supplier is None:
+        raise HTTPException(404, "Supplier not found")
+    # Stable client reference makes retrying an uncertain response safe.
+    existing = await db.scalar(select(SupplierLedger).where(SupplierLedger.supplier_id == supplier_id,
+        SupplierLedger.reference_type == "payment", SupplierLedger.reference_id == request.reference_id))
+    if existing:
+        if existing.amount != -request.amount or existing.notes != request.notes:
+            raise HTTPException(409, "Payment reference has already been used with different details")
+        return {"id": str(existing.id)}
+    entry = await _get_supplier_service(db).record_payment(supplier_id, request.amount, request.reference_id, current_user.id, request.notes)
+    await db.commit()
+    return {"id": str(entry.id)}

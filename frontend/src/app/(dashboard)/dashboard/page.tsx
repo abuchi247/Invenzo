@@ -366,7 +366,7 @@ function PeriodFilter({ value, onChange }: { value: string; onChange: (v: string
 
 function TopProductsWidget() {
   const [period, setPeriod] = useState('all');
-  const query = useResourceQuery<{ data: Array<{ spare_part_id: string; part_name: string; part_number: string; total_quantity_sold: number; total_revenue: number }> }>(queryKeys.dashboard.topProducts(period), `/dashboard/top-products?period=${period}`);
+  const query = useResourceQuery<{ data: Array<{ spare_part_id: string | null; part_name: string; part_number: string | null; total_quantity_sold: number; total_revenue: number }> }>(queryKeys.dashboard.topProducts(period), `/dashboard/top-products?period=${period}`);
   const data = query.data?.data ?? [];
   const isLoading = query.isLoading;
 
@@ -393,7 +393,7 @@ function TopProductsWidget() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {data.map((item, i) => (
-                <tr key={item.spare_part_id} className="hover:bg-gray-50 transition-colors">
+                <tr key={`${item.spare_part_id || "external"}:${item.part_name}:${item.part_number || ""}`} className="hover:bg-gray-50 transition-colors">
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-500">{i + 1}</td>
                   <td className="px-4 py-3 text-sm">
                     <p className="font-medium text-gray-900">{item.part_name}</p>

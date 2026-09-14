@@ -25,6 +25,7 @@ from app.models.user import User, UserRole
 from app.schemas.auth import ErrorResponse
 from app.schemas.sale import (
     SaleCreate,
+    ExternalSupplierReturnRequest,
     SaleListResponse,
     SaleResponse,
     SaleReturnRequest,
@@ -40,6 +41,7 @@ from app.services.sales_service import (
 )
 from app.services.credit_ledger_service import CreditLimitExceededError
 from app.models.sale import SaleItem
+from app.services.supplier_service import SupplierNotFoundError
 
 router = APIRouter(prefix="/api/v1/sales", tags=["Sales"])
 
@@ -47,6 +49,23 @@ router = APIRouter(prefix="/api/v1/sales", tags=["Sales"])
 def _get_sales_service(db: AsyncSession, user_id: UUID) -> SalesService:
     """Create a SalesService instance."""
     return SalesService(db=db, user_id=user_id)
+
+
+async def _validate_sale_sources(request: SaleCreate, db: AsyncSession) -> None:
+    from app.services.supplier_service import SupplierService
+    from app.models.spare_part import SparePart
+    for item in request.items:
+        if item.source_type == "EXTERNAL":
+            try:
+                supplier = await SupplierService(db).get_supplier(item.supplier_id)
+            except SupplierNotFoundError as exc:
+                raise HTTPException(400, str(exc))
+            if supplier.account_status != "active":
+                raise HTTPException(400, "External items require an active supplier")
+        if item.spare_part_id:
+            part = await db.scalar(select(SparePart).where(SparePart.id == item.spare_part_id, SparePart.deleted_at.is_(None)))
+            if part is None:
+                raise HTTPException(400, "Product does not exist")
 
 
 # =============================================================================
@@ -144,12 +163,14 @@ async def list_sales(
             like = f"%{product.strip()}%"
             product_subq = (
                 select(SaleItem.id)
-                .join(SparePart, SparePart.id == SaleItem.spare_part_id)
+                .outerjoin(SparePart, SparePart.id == SaleItem.spare_part_id)
                 .filter(
                     SaleItem.sale_id == Sale.id,
                     or_(
                         SparePart.part_number.ilike(like),
                         SparePart.name.ilike(like),
+                        SaleItem.external_description.ilike(like),
+                        SaleItem.external_part_number.ilike(like),
                     ),
                 )
             )
@@ -241,6 +262,8 @@ async def create_sale(
     Requirements:
     - 5.1: Create a sale with customer, location, line items, payment type
     """
+    await _validate_sale_sources(request, db)
+
     # Block credit sales for suspended/closed customer accounts
     if request.payment_type.upper() == 'CREDIT' and request.customer_id:
         from app.models.customer import Customer
@@ -258,12 +281,7 @@ async def create_sale(
     items = None
     if request.items:
         items = [
-            {
-                "spare_part_id": item.spare_part_id,
-                "quantity": item.quantity,
-                "unit_price": item.unit_price,
-                "discount_amount": item.discount_amount,
-            }
+            item.model_dump()
             for item in request.items
         ]
 
@@ -342,7 +360,7 @@ async def get_sale(
     items_response = []
     for item in sale.items:
         item_resp = SaleItemResponse.model_validate(item)
-        item_resp.returned_quantity = returned_map.get(item.spare_part_id, 0)
+        item_resp.returned_quantity = item.external_returned_quantity if item.source_type == "EXTERNAL" else returned_map.get(item.spare_part_id, 0)
         items_response.append(item_resp)
 
     resp = SaleResponse.model_validate(sale)
@@ -396,6 +414,8 @@ async def update_sale(
     """
     from decimal import Decimal
 
+    await _validate_sale_sources(request, db)
+
     # Block credit sales for suspended/closed customer accounts
     if request.payment_type.upper() == 'CREDIT' and request.customer_id:
         from app.models.customer import Customer
@@ -407,7 +427,7 @@ async def update_sale(
                 detail="Credit sales not allowed for suspended or closed customer accounts. Use cash payment instead.",
             )
 
-    stmt = select(Sale).filter_by(id=sale_id)
+    stmt = select(Sale).filter_by(id=sale_id).with_for_update()
     result = await db.execute(stmt)
     sale = result.scalar_one_or_none()
 
@@ -444,6 +464,12 @@ async def update_sale(
             new_item = SaleItem(
                 sale_id=sale_id,
                 spare_part_id=item_data.spare_part_id,
+                source_type=item_data.source_type,
+                external_description=item_data.external_description,
+                external_part_number=item_data.external_part_number,
+                supplier_id=item_data.supplier_id,
+                supplier_unit_cost=item_data.supplier_unit_cost,
+                supplier_amount_paid=item_data.supplier_amount_paid,
                 quantity=item_data.quantity,
                 unit_price=Decimal(str(item_data.unit_price)),
                 discount_amount=Decimal(str(item_data.discount_amount or 0)),
@@ -533,7 +559,7 @@ async def confirm_sale(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         )
-    except CreditLimitExceededError as e:
+    except (CreditLimitExceededError, ValueError, SupplierNotFoundError) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -659,6 +685,7 @@ async def cancel_sale(
     stmt = (
         select(Sale)
         .filter_by(id=sale_id)
+        .with_for_update()
         .options(selectinload(Sale.items).selectinload(SaleItem.spare_part))
     )
     result = await db.execute(stmt)
@@ -681,3 +708,37 @@ async def cancel_sale(
     await db.commit()
 
     return SaleResponse.model_validate(sale)
+
+
+@router.post("/{sale_id}/items/{item_id}/supplier-return", response_model=SaleResponse)
+async def accept_external_supplier_return(
+    sale_id: UUID,
+    item_id: UUID,
+    request: "ExternalSupplierReturnRequest",
+    db: DbSession,
+    current_user: User = Depends(require_permission("purchasing")),
+) -> SaleResponse:
+    """Record supplier acceptance of previously returned external goods."""
+    from decimal import Decimal
+    from app.models.supplier_ledger import SupplierLedger
+    service = _get_sales_service(db, current_user.id)
+    try:
+        sale = await service._get_sale_with_items(sale_id)
+    except SaleNotFoundError as exc:
+        raise HTTPException(404, str(exc))
+    item = next((item for item in sale.items if item.id == item_id), None)
+    if item is None or item.source_type != "EXTERNAL":
+        raise HTTPException(400, "Select an externally sourced item from this sale")
+    pending = item.external_returned_quantity - item.supplier_returned_quantity
+    if request.quantity > pending:
+        raise HTTPException(400, f"Only {pending} units await supplier acceptance")
+    item.supplier_returned_quantity += request.quantity
+    db.add(SupplierLedger(
+        supplier_id=item.supplier_id, transaction_type="RETURN",
+        amount=-(request.quantity * item.supplier_unit_cost).quantize(Decimal("0.01")),
+        reference_type="external_sale", reference_id=item.id,
+        notes=f"Supplier accepted {request.quantity} returned units from {sale.invoice_number}",
+        created_by=current_user.id,
+    ))
+    await db.commit()
+    return SaleResponse.model_validate(await service._get_sale_with_items(sale_id))

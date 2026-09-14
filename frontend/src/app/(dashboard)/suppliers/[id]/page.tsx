@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { get, put } from '@/lib/api';
+import { get, put, post } from '@/lib/api';
 import {
   Button,
   Input,
@@ -78,6 +78,19 @@ export default function SupplierDetailPage() {
   const [supplier, setSupplier] = useState<Supplier | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentNotes, setPaymentNotes] = useState('');
+  const [paymentReference, setPaymentReference] = useState('');
+  const [isPaying, setIsPaying] = useState(false);
+  const [ledger, setLedger] = useState<Array<{id: string; created_at: string; transaction_type: string; amount: string; reference_type: string; notes?: string}>>([]);
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledgerError, setLedgerError] = useState('');
+  const fetchLedger = useCallback(async () => {
+    try { setLedger((await get<{data: typeof ledger}>(`/suppliers/${id}/ledger?page=${ledgerPage}`)).data); setLedgerError(''); }
+    catch { setLedgerError('Could not load supplier transactions.'); }
+  }, [id, ledgerPage]);
+  useEffect(() => { fetchLedger(); }, [fetchLedger]);
 
   // Balance state
   const [balance, setBalance] = useState<SupplierBalance | null>(null);
@@ -335,6 +348,32 @@ export default function SupplierDetailPage() {
             </p>
           )}
         </div>
+      </div>
+
+      <div className="rounded-lg border bg-white p-4 space-y-3">
+        <h2 className="font-semibold">Supplier payments and transactions</h2>
+        <p className="text-sm text-gray-600">Record money already paid to this store. This updates the supplier balance separately from customer payments.</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Input label="Payment amount" type="number" min="0.01" step="0.01" value={paymentAmount} disabled={isPaying} onChange={e => {setPaymentAmount(e.target.value); setPaymentReference('');}} />
+          <Input label="Payment reference / notes" maxLength={1000} value={paymentNotes} disabled={isPaying} onChange={e => {setPaymentNotes(e.target.value); setPaymentReference('');}} />
+        </div>
+        <Button isLoading={isPaying} disabled={!(Number(paymentAmount) > 0)} onClick={async () => {
+          setIsPaying(true); setError(null);
+          const reference = paymentReference || crypto.randomUUID(); setPaymentReference(reference);
+          try {
+            await post(`/suppliers/${id}/payments`, {amount: Number(paymentAmount), reference_id: reference, notes: paymentNotes || null});
+            setPaymentAmount(''); setPaymentNotes(''); setPaymentReference('');
+            await Promise.all([fetchBalance(), fetchPaymentSchedule(), fetchLedger()]);
+          } catch (err) {setError(extractApiError(err, 'Could not record payment'));}
+          finally {setIsPaying(false);}
+        }}>Record supplier payment</Button>
+        {ledgerError && <p role="alert" className="text-red-700">{ledgerError}</p>}
+        <div className="overflow-x-auto"><table className="w-full text-sm text-left">
+          <thead><tr><th className="py-2">Date</th><th>Type</th><th>Details</th><th className="text-right">Amount</th></tr></thead>
+          <tbody>{ledger.map(entry => <tr key={entry.id} className="border-t"><td className="py-2">{formatDate(entry.created_at)}</td><td>{entry.transaction_type}</td><td>{entry.notes || entry.reference_type}</td><td className="text-right">{formatCurrency(Number(entry.amount))}</td></tr>)}</tbody>
+        </table></div>
+        {!ledger.length && !ledgerError && <p className="text-sm text-gray-500">No transactions on this page.</p>}
+        <div className="flex gap-2"><Button variant="secondary" disabled={ledgerPage === 1} onClick={() => setLedgerPage(p => p - 1)}>Previous</Button><Button variant="secondary" disabled={ledger.length < 50} onClick={() => setLedgerPage(p => p + 1)}>Next</Button></div>
       </div>
 
       {/* Payment Schedule */}

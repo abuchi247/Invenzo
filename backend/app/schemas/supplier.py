@@ -189,3 +189,9 @@ class SupplierBalanceResponse(BaseModel):
     )
 
     model_config = {"from_attributes": True}
+
+
+class SupplierPaymentRequest(BaseModel):
+    amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+    reference_id: UUID
+    notes: Optional[str] = Field(default=None, max_length=1000)

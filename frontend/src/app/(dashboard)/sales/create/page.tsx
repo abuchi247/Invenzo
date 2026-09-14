@@ -36,6 +36,7 @@ import type {
   SaleItemCreate,
   Sale,
 } from '@/lib/types';
+import ExternalItemForm from '@/components/sales/ExternalItemForm';
 import { formatCurrency } from '@/lib/currency';
 
 import { formatFieldErrors, validateWithSchema } from '@/lib/validation/errors';
@@ -44,6 +45,13 @@ import { extractApiError } from '@/lib/validation/errors';
 import { useRequirePermission } from '@/hooks/useRequirePermission';
 
 interface LineItem {
+  source_type?: 'STOCK' | 'EXTERNAL';
+  external_description?: string;
+  external_part_number?: string;
+  supplier_id?: string;
+  supplier_unit_cost?: number;
+  supplier_amount_paid?: number;
+
   id: string;
   spare_part_id: string;
   spare_part_name: string;
@@ -217,7 +225,13 @@ export default function CreateSalePage() {
     payment_type: paymentType as SaleCreate['payment_type'],
     amount_paid: paymentType === 'CREDIT' && amountPaid ? Number(amountPaid) : undefined,
     items: lineItems.map((li): SaleItemCreate => ({
-      spare_part_id: li.spare_part_id,
+      spare_part_id: li.spare_part_id || undefined,
+      source_type: li.source_type || 'STOCK',
+      external_description: li.external_description,
+      external_part_number: li.external_part_number,
+      supplier_id: li.supplier_id,
+      supplier_unit_cost: li.supplier_unit_cost,
+      supplier_amount_paid: li.supplier_amount_paid || 0,
       quantity: li.quantity || 1,
       unit_price: li.unit_price || 0,
       discount_amount: (li.discount_amount || 0) || undefined,
@@ -281,7 +295,7 @@ export default function CreateSalePage() {
 
       try {
         await post<Sale>(`/sales/${saleId}/confirm`);
-        setSuccess('Sale confirmed successfully. Stock has been deducted.');
+        setSuccess('Sale confirmed successfully. Inventory and supplier balances have been updated.');
         setTimeout(() => {
           router.push(`/sales/${saleId}`);
         }, 1000);
@@ -345,6 +359,8 @@ export default function CreateSalePage() {
           Back to Sales
         </Button>
       </div>
+
+      <ExternalItemForm onAdd={item => setLineItems(items => [...items, item])} />
 
       {/* Alerts */}
       {error && (
@@ -655,8 +671,13 @@ export default function CreateSalePage() {
                     >
                       <div className="flex items-start justify-between">
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-gray-900 truncate">{item.spare_part_name}</p>
+                          <p className="text-sm font-medium text-gray-900 truncate">{item.spare_part_name}{item.source_type === 'EXTERNAL' && <span className="ml-2 text-xs text-blue-700">External</span>}</p>
                           <p className="text-xs text-gray-500">{item.part_number}</p>
+                          {item.source_type === 'EXTERNAL' && <div className="mt-1 text-xs text-blue-800">
+                            <p>Supplier cost: {formatCurrency(Number(item.supplier_unit_cost) * Number(item.quantity || 0))}</p>
+                            <p>Supplier payment: {formatCurrency(Number(item.supplier_amount_paid || 0))}</p>
+                            <p>To change the supplying store or cost, remove and re-add this item.</p>
+                          </div>}
                           {item.available_stock !== undefined && (
                             <p className={`text-xs mt-0.5 ${item.available_stock <= 0 ? 'text-red-600' : 'text-green-600'}`}>
                               Stock: {formatStock(item.available_stock)}

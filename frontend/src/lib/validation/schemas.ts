@@ -84,10 +84,22 @@ export const sparePartUpdateSchema = z.object({
 );
 
 export const saleItemCreateSchema = z.object({
-  spare_part_id: uuid,
+  spare_part_id: uuid.nullish(),
+  source_type: z.enum(['STOCK', 'EXTERNAL']).default('STOCK'),
+  external_description: z.string().trim().max(255).optional(),
+  external_part_number: z.string().max(100).optional(),
+  supplier_id: uuid.optional(),
+  supplier_unit_cost: positiveNumber.optional(),
+  supplier_amount_paid: nonNegativeNumber.default(0),
   quantity: positiveNumber,
   unit_price: positiveNumber,
   discount_amount: nonNegativeNumber.default(0),
+}).superRefine((item, ctx) => {
+  if (item.discount_amount > item.quantity * item.unit_price) ctx.addIssue({code: 'custom', message: 'Discount cannot exceed line amount', path: ['discount_amount']});
+  if (item.source_type === 'EXTERNAL') {
+    if (!item.external_description || !item.supplier_id || !item.supplier_unit_cost) ctx.addIssue({code: 'custom', message: 'External items require a description, supplier and cost'});
+    if (item.supplier_amount_paid > item.quantity * (item.supplier_unit_cost || 0)) ctx.addIssue({code: 'custom', message: 'Supplier payment exceeds cost'});
+  } else if (!item.spare_part_id) ctx.addIssue({code: 'custom', message: 'Select a stock product', path: ['spare_part_id']});
 });
 
 export const saleCreateSchema = z.object({

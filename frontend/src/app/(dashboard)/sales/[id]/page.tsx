@@ -73,6 +73,8 @@ export default function SaleDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  const [isActionLoading, setIsActionLoading] = useState(false);
+
   // Confirm state
   const [isConfirming, setIsConfirming] = useState(false);
 
@@ -273,7 +275,7 @@ export default function SaleDetailPage() {
           sale_item_id: item.id,
           quantity: remaining,
           max_quantity: remaining,
-          part_name: item.spare_part?.name || `Item ${item.id.slice(0, 8)}`,
+          part_name: item.external_description || item.spare_part?.name || `Item ${item.id.slice(0, 8)}`,
           reason: '',
           selected: false,
         };
@@ -491,7 +493,7 @@ export default function SaleDetailPage() {
                   <tr key={item.id}>
                     <td className="whitespace-nowrap px-4 py-3 text-sm">
                       <p className="font-medium text-gray-900">
-                        {item.spare_part?.name ?? `Part ${item.spare_part_id.slice(0, 8)}`}
+                        {item.external_description || item.spare_part?.name || `Part ${item.spare_part_id?.slice(0, 8)}`}
                       </p>
                       {item.spare_part?.part_number && (
                         <p className="text-gray-500">{item.spare_part.part_number}</p>
@@ -552,7 +554,7 @@ export default function SaleDetailPage() {
                 {(() => {
                   const totalReturned = sale.items?.reduce((sum, item) => {
                     const returned = Number(item.returned_quantity || 0);
-                    return sum + returned * Number(item.unit_price);
+                    return sum + returned * (Number(item.line_total) / Number(item.quantity));
                   }, 0) ?? 0;
                   const netOwed = Number(sale.total_amount) - Number(sale.amount_paid || 0) - totalReturned;
                   return (
@@ -579,6 +581,30 @@ export default function SaleDetailPage() {
         </div>
       </div>
 
+      {sale.items?.some(item => item.source_type === 'EXTERNAL') && <div className="rounded-lg border border-blue-200 bg-white p-4 space-y-3">
+        <h2 className="font-semibold">Externally sourced items</h2>
+        <p className="text-sm text-gray-600">Supplier balances and later payments are tracked on the supplier account. Customer returns remain outside your stock until resolved with the supplier.</p>
+        {sale.items.filter(item => item.source_type === 'EXTERNAL').map(item => {
+          const pending = Number(item.external_returned_quantity || 0) - Number(item.supplier_returned_quantity || 0);
+          return <div key={item.id} className="border-t pt-3 text-sm space-y-1">
+            <p className="font-medium">{item.external_description}</p>
+            <p>Supplier cost: {formatCurrency(Number(item.supplier_unit_cost) * Number(item.quantity))} · Paid at checkout: {formatCurrency(Number(item.supplier_amount_paid || 0))}</p>
+            <a className="text-blue-700 underline" href={`/suppliers/${item.supplier_id}`}>View supplier balance and record payment</a>
+            {pending > 0 && <div className="mt-2">
+              <p>{pending} returned unit(s) awaiting supplier acceptance. Confirm only after the supplier accepts the goods and agrees to credit their cost.</p>
+              {can('purchasing') && <Button variant="secondary" disabled={isActionLoading} onClick={async () => {
+                setIsActionLoading(true);
+                try {
+                  await post(`/sales/${saleId}/items/${item.id}/supplier-return`, {quantity: pending});
+                  await fetchSale();
+                } catch (err) { setError(extractApiError(err, 'Failed to record supplier return')); }
+                finally { setIsActionLoading(false); }
+              }}>Confirm supplier accepted {pending} unit(s)</Button>}
+            </div>}
+          </div>;
+        })}
+      </div>}
+
       {/* Return Summary - show if any items have been returned */}
       {sale.items && sale.items.some((item) => Number(item.returned_quantity || 0) > 0) && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 sm:p-6 shadow-sm">
@@ -600,11 +626,11 @@ export default function SaleDetailPage() {
                   const sold = Number(item.quantity);
                   const kept = sold - returned;
                   const unitPrice = Number(item.unit_price);
-                  const refund = returned * unitPrice;
+                  const refund = returned * (Number(item.line_total) / sold);
                   return (
                     <tr key={item.id}>
                       <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">
-                        {item.spare_part?.name || 'Unknown Part'}
+                        {item.external_description || item.spare_part?.name || 'Unknown Part'}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm text-right text-gray-700">{sold}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm text-right text-red-600 font-medium">{returned}</td>
@@ -623,7 +649,7 @@ export default function SaleDetailPage() {
               {(() => {
                 const goodsReturnedValue = sale.items.reduce((sum, item) => {
                   const returned = Number(item.returned_quantity || 0);
-                  return sum + returned * Number(item.unit_price);
+                  return sum + returned * (Number(item.line_total) / Number(item.quantity));
                 }, 0);
                 const amountPaid = Number(sale.amount_paid || 0);
                 const totalAmount = Number(sale.total_amount);

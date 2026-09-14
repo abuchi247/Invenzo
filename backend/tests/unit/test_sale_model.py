@@ -275,10 +275,10 @@ class TestSaleItemModel:
         assert fk.target_fullname == "sales.id"
 
     def test_spare_part_id_column(self):
-        """SaleItem should have a non-nullable spare_part_id FK."""
+        """SaleItem should have a nullable spare_part_id FK for external items."""
         col = SaleItem.__table__.columns["spare_part_id"]
         assert isinstance(col.type, PG_UUID)
-        assert col.nullable is False
+        assert col.nullable is True
         fk = list(col.foreign_keys)[0]
         assert fk.target_fullname == "spare_parts.id"
 
