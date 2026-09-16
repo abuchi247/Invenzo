@@ -1,16 +1,19 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import ExternalItemForm from './ExternalItemForm';
 import { saleCreateSchema } from '@/lib/validation/schemas';
-vi.mock('@/lib/api', () => ({get: vi.fn().mockResolvedValue({data: [{id: '00000000-0000-4000-8000-000000000001', name: 'Neighbour shop', account_status: 'active'}]})}));
+vi.mock('@/lib/api', () => ({
+  get: vi.fn().mockResolvedValue({data: [{id: '00000000-0000-4000-8000-000000000001', name: 'Neighbour shop', account_status: 'active'}]}),
+  post: vi.fn(),
+}));
 
 describe('External item checkout', () => {
   it('keeps supplier cost and payment through checkout validation without requiring stock', async () => {
     const add = vi.fn(); render(<ExternalItemForm onAdd={add} />);
     fireEvent.click(screen.getByText('Add externally sourced item'));
-    await screen.findByText('Neighbour shop');
     fireEvent.change(screen.getByLabelText(/Item name/), {target: {value: 'Brake assembly'}});
-    fireEvent.change(screen.getByLabelText(/Supplying store/), {target: {value: '00000000-0000-4000-8000-000000000001'}});
+    fireEvent.change(screen.getByRole('textbox', {name: /^Supplier/}), {target: {value: 'Neighbour'}});
+    fireEvent.click(await screen.findByText('Neighbour shop'));
     fireEvent.change(screen.getByLabelText('Supplier cost per unit'), {target: {value: '40'}});
     fireEvent.change(screen.getByLabelText('Selling price per unit'), {target: {value: '50'}});
     fireEvent.change(screen.getByLabelText('Supplier payment already made'), {target: {value: '20'}});

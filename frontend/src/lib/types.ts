@@ -610,9 +610,9 @@ export interface DashboardKPIs {
   low_stock_count: number;
   pending_po_count: number;
   top_selling_products: Array<{
-    spare_part_id: string;
+    spare_part_id: string | null;
     part_name: string;
-    part_number: string;
+    part_number: string | null;
     total_quantity_sold: string | number;
   }> | null;
 }

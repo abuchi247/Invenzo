@@ -181,9 +181,10 @@ class FinancialSummaryResponse(BaseModel):
 class TopSellingProductSchema(BaseModel):
     """A top selling product item."""
 
-    spare_part_id: str
+    # External sale items intentionally have no inventory record.
+    spare_part_id: Optional[str] = None
     part_name: str
-    part_number: str
+    part_number: Optional[str] = None
     total_quantity_sold: str
 
 

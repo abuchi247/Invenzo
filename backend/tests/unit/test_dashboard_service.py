@@ -418,6 +418,30 @@ class TestTopSellingProducts:
         assert result == []
 
     @pytest.mark.asyncio
+    async def test_top_selling_products_includes_external_items(self, service, mock_db):
+        """External items have no inventory id but still belong in sales KPIs."""
+        mock_row = MagicMock()
+        mock_row.spare_part_id = None
+        mock_row.part_name = "Wheel Speed Sensor"
+        mock_row.part_number = "SENSOR-EXT-01"
+        mock_row.total_quantity_sold = Decimal("1")
+
+        mock_result = MagicMock()
+        mock_result.all.return_value = [mock_row]
+        mock_db.execute.return_value = mock_result
+
+        result = await service._get_top_selling_products()
+
+        assert result == [
+            {
+                "spare_part_id": None,
+                "part_name": "Wheel Speed Sensor",
+                "part_number": "SENSOR-EXT-01",
+                "total_quantity_sold": "1",
+            }
+        ]
+
+    @pytest.mark.asyncio
     async def test_top_selling_products_respects_limit(self, service, mock_db):
         """_get_top_selling_products respects the limit parameter."""
         rows = []
