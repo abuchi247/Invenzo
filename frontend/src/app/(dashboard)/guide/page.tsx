@@ -137,6 +137,7 @@ const GUIDE_SECTIONS: Section[] = [
           'Choose your selling location',
           'Set payment type: Cash or Credit',
           'Search for parts and add them to the sale — the selling price pre-fills but is editable',
+          'You can combine your stocked parts and externally sourced items in the same sale',
           'For partial cash payment at checkout: enter the amount paid in the "Amount Paid" field',
           'Click Confirm Sale to deduct stock and generate the invoice',
           'Or click Save Draft to finish later — stock is not deducted until the sale is confirmed',
@@ -144,6 +145,22 @@ const GUIDE_SECTIONS: Section[] = [
         tip: 'Confirming a sale locks the items and triggers FIFO cost-of-goods calculation. Drafts can be edited or deleted.',
         link: '/sales',
         linkLabel: 'Go to Sales',
+      },
+      {
+        title: 'Selling an externally sourced item',
+        description: 'Use this when a customer wants an item you do not own in stock and you will obtain it from another supplier.',
+        details: [
+          'Go to Sales → Create Sale (or open a draft sale to edit it)',
+          'Click Add externally sourced item',
+          'Enter the item name and optional part number',
+          'In the Supplier field, choose a matching supplier or enter a new supplier name — a new name is saved automatically when you add the item',
+          'Enter the quantity, the supplier cost per unit, your selling price, and any amount already paid to the supplier',
+          'Click Add to sale, then add any stocked items you are selling in the same transaction',
+          'Confirm the sale normally. Externally sourced items appear on the invoice but do not reduce or increase your own stock',
+        ],
+        tip: 'Customer payment and supplier payment are separate. A customer can pay in full while you still owe the supplier, or the other way around.',
+        link: '/sales',
+        linkLabel: 'Create a Sale',
       },
       {
         title: 'Downloading an invoice',
@@ -164,12 +181,13 @@ const GUIDE_SECTIONS: Section[] = [
         details: [
           'Open the confirmed sale → click Process Return',
           'Select which line items to return and the quantity for each',
-          'Stock is automatically restored to the original selling location',
+          'Stocked items are automatically restored to the original selling location',
+          'Externally sourced items do not return to your stock; their supplier cost remains due until the supplier accepts the returned item',
           'The sale status changes to Returned and shows a Return Summary with net amounts',
           'A credit note PDF is automatically generated',
           'If the original sale was a credit sale, the customer\'s balance is reduced',
         ],
-        tip: 'Only Managers and Admins can process returns.',
+        tip: 'Only Managers and Admins can process returns. For an external item, a user with purchasing permission confirms the supplier\'s acceptance from the sale detail page before the supplier balance is credited.',
         link: '/sales',
         linkLabel: 'Go to Sales',
       },
@@ -212,12 +230,13 @@ const GUIDE_SECTIONS: Section[] = [
     steps: [
       {
         title: 'Adding a supplier',
-        description: 'Create a supplier profile before raising a purchase order.',
+        description: 'Create a supplier profile for purchase orders or externally sourced sales.',
         details: [
           'Go to Suppliers → Add Supplier',
           'Fill in: name, contact person, phone, email, address',
           'Optional: tax ID and payment terms',
-          'The supplier\'s balance tracks what you owe them across all purchase orders',
+          'The supplier\'s balance tracks what you owe them across purchase orders and externally sourced sales',
+          'When selling an external item, you can also enter a new supplier name directly on the sale form; the system creates this profile automatically',
         ],
         link: '/suppliers',
         linkLabel: 'Go to Suppliers',
@@ -262,7 +281,7 @@ const GUIDE_SECTIONS: Section[] = [
       },
       {
         title: 'Paying a supplier',
-        description: 'Record payments made to a supplier against their balance.',
+        description: 'Record payments made to a supplier against their balance from purchase orders or externally sourced sales.',
         details: [
           'Go to Suppliers → click the supplier name',
           'Open the Ledger tab',
