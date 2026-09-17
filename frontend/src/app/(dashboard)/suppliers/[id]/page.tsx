@@ -355,10 +355,14 @@ export default function SupplierDetailPage() {
         <h2 className="font-semibold">Supplier payments and transactions</h2>
         <p className="text-sm text-gray-600">Record money already paid to this store. This updates the supplier balance separately from customer payments.</p>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Input label="Payment amount" type="number" min="0.01" step="0.01" value={paymentAmount} disabled={isPaying} onChange={e => {setPaymentAmount(e.target.value); setPaymentReference('');}} />
+          <Input label="Payment amount" type="number" min="0.01" max={balance ? Number(balance.total_balance) : undefined} step="0.01" value={paymentAmount} disabled={isPaying || (balance !== null && Number(balance.total_balance) <= 0)} onChange={e => {setPaymentAmount(e.target.value); setPaymentReference('');}} />
           <Input label="Payment reference / notes" maxLength={1000} value={paymentNotes} disabled={isPaying} onChange={e => {setPaymentNotes(e.target.value); setPaymentReference('');}} />
         </div>
-        <Button isLoading={isPaying} disabled={!(Number(paymentAmount) > 0)} onClick={async () => {
+        <Button isLoading={isPaying} disabled={!(Number(paymentAmount) > 0) || (balance !== null && Number(paymentAmount) > Number(balance.total_balance))} onClick={async () => {
+          if (balance !== null && Number(paymentAmount) > Number(balance.total_balance)) {
+            setError(`Payment cannot exceed the outstanding balance of ${formatCurrency(balance.total_balance)}.`);
+            return;
+          }
           setIsPaying(true); setError(null);
           const reference = paymentReference || crypto.randomUUID(); setPaymentReference(reference);
           try {
