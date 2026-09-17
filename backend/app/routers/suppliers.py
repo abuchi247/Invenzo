@@ -450,6 +450,16 @@ async def record_supplier_payment(
         if existing.amount != -request.amount or existing.notes != request.notes:
             raise HTTPException(409, "Payment reference has already been used with different details")
         return {"id": str(existing.id)}
-    entry = await _get_supplier_service(db).record_payment(supplier_id, request.amount, request.reference_id, current_user.id, request.notes)
+    service = _get_supplier_service(db)
+    outstanding_balance = await service.calculate_balance(supplier_id)
+    if request.amount > outstanding_balance:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "Payment amount cannot exceed the outstanding supplier balance "
+                f"({outstanding_balance:.2f})."
+            ),
+        )
+    entry = await service.record_payment(supplier_id, request.amount, request.reference_id, current_user.id, request.notes)
     await db.commit()
     return {"id": str(entry.id)}

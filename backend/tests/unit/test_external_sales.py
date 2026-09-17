@@ -95,6 +95,15 @@ async def test_external_sale_payment_returns_and_retry(db_session):
         second = await record_supplier_payment(supplier.id, payment, db_session, user)
         assert first == second
         assert await SupplierService(db_session).calculate_balance(supplier.id) == D('0')
+        with pytest.raises(HTTPException) as overpayment:
+            await record_supplier_payment(
+                supplier.id,
+                SupplierPaymentRequest(amount=1, reference_id=uuid.uuid4(), notes='Overpayment'),
+                db_session,
+                user,
+            )
+        assert overpayment.value.status_code == 422
+        assert await SupplierService(db_session).calculate_balance(supplier.id) == D('0')
         await service.return_sale(sale.id, user.id)
         await db_session.commit()
         assert sale.status == SaleStatus.RETURNED
