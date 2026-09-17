@@ -26,8 +26,9 @@ import { useRequirePermission } from '@/hooks/useRequirePermission';
 
 interface SupplierBalance {
   supplier_id: string;
-  balance: number;
-  currency: string;
+  supplier_name: string;
+  total_balance: number | string;
+  aging: Record<string, number>;
 }
 
 function getStatusBadge(status: AccountStatus): React.ReactNode {
@@ -336,7 +337,7 @@ export default function SupplierDetailPage() {
           ) : balance ? (
             <div className="text-center">
               <p className="text-3xl font-bold text-gray-900">
-                {formatCurrency(balance.balance)}
+                {formatCurrency(balance.total_balance)}
               </p>
               <p className="mt-1 text-sm text-gray-500">
                 Outstanding balance
