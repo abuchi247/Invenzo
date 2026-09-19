@@ -66,6 +66,7 @@ export default function InventoryPage() {
   });
   const [brandFilter, setBrandFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [lowStockOnly, setLowStockOnly] = useState(searchParams.get('low_stock') === 'true');
   const [locationFilter, setLocationFilter] = useState(searchParams.get('location') || '');
   const [sortField, setSortField] = useState('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -78,11 +79,12 @@ export default function InventoryPage() {
       search: debouncedSearch,
       brand: brandFilter,
       category_id: categoryFilter,
+      low_stock: lowStockOnly ? 'true' : undefined,
       location_id: locationFilter,
       sort_by: sortField,
       sort_direction: sortDirection,
     }),
-    [pageSize, debouncedSearch, brandFilter, categoryFilter, locationFilter, sortField, sortDirection],
+    [pageSize, debouncedSearch, brandFilter, categoryFilter, lowStockOnly, locationFilter, sortField, sortDirection],
   );
   const partsQuery = usePaginatedQuery<SparePart & { total_stock?: number }>(
     queryKeys.inventory.list(partsParamsFor(page)),
@@ -214,6 +216,10 @@ export default function InventoryPage() {
     ],
     [locations]
   );
+  const stockOptions: SelectOption[] = [
+    { value: '', label: 'All stock levels' },
+    { value: 'low', label: 'Low stock only' },
+  ];
 
   const closeCreateModal = useCallback(() => {
     setShowCreateModal(false);
@@ -339,6 +345,17 @@ export default function InventoryPage() {
               setPage(1);
             }}
             aria-label="Filter by category"
+          />
+        </div>
+        <div className="w-full sm:w-48">
+          <Select
+            options={stockOptions}
+            value={lowStockOnly ? 'low' : ''}
+            onChange={(e) => {
+              setLowStockOnly(e.target.value === 'low');
+              setPage(1);
+            }}
+            aria-label="Filter by stock level"
           />
         </div>
         <div className="w-full sm:w-48">

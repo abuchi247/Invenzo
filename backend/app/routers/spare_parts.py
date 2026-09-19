@@ -66,6 +66,7 @@ async def list_spare_parts(
     search: Optional[str] = Query(default=None, description="Search by name, part number, or barcode"),
     brand: Optional[str] = Query(default=None, description="Filter by brand"),
     category_id: Optional[str] = Query(default=None, description="Filter by category ID"),
+    low_stock: bool = Query(default=False, description="When true, show only parts below their minimum stock level"),
     include_zero_stock: bool = Query(default=False, description="When true with location_id, show all parts (not just those with stock)"),
 ) -> SparePartListResponse:
     """List all active spare parts with pagination and filters.
@@ -104,6 +105,14 @@ async def list_spare_parts(
         child_ids = [row[0] for row in child_result.all()]
         all_cat_ids = [cat_uuid] + child_ids
         base_filter.append(SP.category_id.in_(all_cat_ids))
+
+    if low_stock:
+        total_stock = (
+            select(func.coalesce(func.sum(StockStatusCache.current_quantity), 0))
+            .where(StockStatusCache.spare_part_id == SP.id)
+            .scalar_subquery()
+        )
+        base_filter.append(total_stock < SP.min_stock_level)
 
     if location_id:
         # Join with stock cache to get stock at this location

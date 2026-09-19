@@ -225,18 +225,21 @@ class DashboardService:
     async def _get_low_stock_count(self) -> int:
         """Get the count of spare parts with stock below minimum level.
 
-        Joins StockStatusCache with SparePart to compare current_quantity
-        against min_stock_level. Counts items where current stock is below
-        the defined minimum threshold.
+        Totals stock across locations for each active spare part and counts
+        items below their defined minimum threshold. Parts with no stock
+        records are treated as having zero stock.
 
         Returns:
             Count of low-stock items.
         """
-        stmt = select(func.count()).select_from(StockStatusCache).join(
-            SparePart,
-            StockStatusCache.spare_part_id == SparePart.id,
-        ).where(
-            StockStatusCache.current_quantity < SparePart.min_stock_level
+        total_stock = (
+            select(func.coalesce(func.sum(StockStatusCache.current_quantity), 0))
+            .where(StockStatusCache.spare_part_id == SparePart.id)
+            .scalar_subquery()
+        )
+        stmt = select(func.count(SparePart.id)).where(
+            SparePart.deleted_at.is_(None),
+            total_stock < SparePart.min_stock_level,
         )
         result = await self.db.execute(stmt)
         return result.scalar() or 0

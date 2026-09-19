@@ -108,7 +108,7 @@ export default function DashboardPage() {
             title="Low Stock Items"
             value={kpis.low_stock_count.toString()}
             borderColor="#f44336"
-            href="/inventory"
+            href="/inventory?low_stock=true"
           />
         )}
 
