@@ -84,6 +84,9 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_ variables are embedded in the client bundle during build.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
     container_name: invenzo-frontend
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
